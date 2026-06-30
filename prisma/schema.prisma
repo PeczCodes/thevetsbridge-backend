@@ -1,0 +1,1416 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+///////////////////////////////////////////////////////
+// ENUMS
+///////////////////////////////////////////////////////
+
+enum OrganizationType {
+  FARM
+  CLINIC
+  VENDOR_BUSINESS
+}
+
+enum AnimalType {
+  PET
+  LIVESTOCK
+  AQUATIC
+  EXOTIC
+}
+
+enum AnimalSex {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+enum AnimalStatus {
+  ACTIVE
+  DECEASED
+}
+
+enum HealthStatus {
+  HEALTHY
+  SICK
+  RECOVERING
+  QUARANTINE
+  DECEASED
+}
+
+enum AppointmentType {
+  CONSULTATION
+  CHECKUP
+  VACCINATION
+  EMERGENCY
+  FOLLOW_UP
+  SURGERY
+}
+
+enum AppointmentStatus {
+  PENDING_PAYMENT
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+  NO_SHOW
+}
+
+enum ConsultationStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ConsultationMode {
+  CHAT
+  VIDEO
+  HYBRID
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  ISSUED
+  REDEEMED
+  EXPIRED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  RETURNED
+  REFUNDED
+}
+
+enum ListingType {
+  SALE
+  ADOPTION
+}
+
+enum VetVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum OrganizationRole {
+  OWNER
+  MANAGER
+  STAFF
+  VET
+}
+
+enum OwnershipStatus {
+  ACTIVE
+  TRANSFERRED
+  REVOKED
+}
+
+enum AttachmentType {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  OTHER
+}
+
+enum ReviewStatus {
+  PUBLISHED
+  HIDDEN
+  REMOVED
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum VetSpecialization {
+  GENERAL_PRACTICE
+  SMALL_ANIMAL_MEDICINE
+  LARGE_ANIMAL_MEDICINE
+  SURGERY
+  EMERGENCY_CRITICAL_CARE
+}
+
+enum InventoryTransactionType {
+  PURCHASE
+  SALE
+  RESTOCK
+  RETURN
+  DAMAGE
+  MANUAL_ADJUSTMENT
+}
+
+enum CartStatus {
+  ACTIVE
+  SAVED
+  ABANDONED
+  CONVERTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  PAID_IN_ESCROW
+  RELEASED
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  FLUTTERWAVE
+  STRIPE
+  CASH
+}
+
+enum PaymentPurpose {
+  ORDER
+  APPOINTMENT
+}
+
+enum NotificationType {
+  APPOINTMENT
+  PAYMENT
+  ORDER
+  SYSTEM
+  MESSAGE
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  FILE
+  AUDIO
+}
+
+enum ShipmentStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  RETURNED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum EarningStatus {
+  PENDING
+  PROCESSING
+  SETTLED
+  ON_HOLD
+}
+
+enum VetSlotStatus {
+  AVAILABLE
+  BOOKED
+  BLOCKED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+enum AnimalAgeType {
+  EXACT
+  ESTIMATED
+}
+
+///////////////////////////////////////////////////////
+// USER & IDENTITY
+///////////////////////////////////////////////////////
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  phone        String? @unique
+  passwordHash String?
+  firstName    String
+  lastName     String
+  displayName  String?
+  avatarUrl    String?
+
+  isAdmin  Boolean @default(false)
+  isActive Boolean @default(true)
+
+  timezone String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  vetProfile    VetProfile?
+  vendorProfile VendorProfile?
+
+  vetReviewsGiven     VetReview[]
+  vendorReviewsGiven  VendorReview[]
+  productReviewsGiven ProductReview[]
+
+  organizations      OrganizationMember[]
+  ownedOrganizations Organization[]
+  animalsOwned       AnimalOwnership[]
+  orders             Order[]
+
+  customerConsultations Consultation[]  @relation("CustomerConsultations")
+  directChannels        DirectChannel[] @relation("CustomerDirectChannels")
+  chatMessages          ChatMessage[]
+  sessions              Session[]
+
+  // New relations
+  addresses     Address[]
+  carts         Cart[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  appointments  Appointment[]
+  payments      Payment[]
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  isRevoked        Boolean  @default(false)
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model VetProfile {
+  id              String            @id @default(cuid())
+  userId          String            @unique
+  specialization  VetSpecialization @default(GENERAL_PRACTICE)
+  licenseNumber   String?           @unique
+  licenseCountry  String?
+  licenseDocUrl   String?
+  experience      Int?
+  qualifications  String[]
+  languages       String[]
+  avatarUrl       String?
+  consultationFee Decimal?          @db.Decimal(10, 2)
+  emergencyFee    Decimal?          @db.Decimal(10, 2)
+  bio             String?
+  certificates    Json?
+  status          ApplicationStatus @default(PENDING)
+  rejectionReason String?
+  isAvailable     Boolean           @default(true)
+  rating          Float             @default(5.0)
+  totalConsults   Int               @default(0)
+
+  directMessagingEnabled Boolean @default(false)
+  directMessagingPrice   Decimal @default(0.00)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  slug      String?  @unique
+
+  // Relations
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews        VetReview[]
+  consultations  Consultation[]    @relation("VetConsultations")
+  directChannels DirectChannel[]   @relation("VetDirectChannels")
+  prescriptions  Prescription[]
+  availability   VetAvailability[]
+  timeOff        VetTimeOff[]
+
+  // New relations
+  clinicAddressId String?
+  clinicAddress   Address?        @relation("VetClinicAddress", fields: [clinicAddressId], references: [id])
+  slots           VetSlot[]
+  appointments    Appointment[]
+  medicalRecords  MedicalRecord[]
+  vaccinations    Vaccination[]
+  earnings        VetEarning[]
+  withdrawals     VetWithdrawal[]
+
+  @@index([status, isAvailable])
+  @@index([rating])
+  @@index([specialization])
+  @@index([slug])
+}
+
+model VendorProfile {
+  id              String            @id @default(cuid())
+  userId          String            @unique
+  businessName    String?
+  businessPhone   String?
+  businessAddress String?
+  avatarUrl       String?
+  status          ApplicationStatus @default(PENDING)
+  rejectionReason String?
+  rating          Float             @default(0)
+  totalSales      Int               @default(0)
+  bio             String?
+  slug            String?           @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products VendorProduct[]
+  reviews  VendorReview[]
+
+  @@index([status, rating])
+  @@index([slug])
+}
+
+model VetAvailability {
+  id    String     @id @default(cuid())
+  vetId String
+  vet   VetProfile @relation(fields: [vetId], references: [id], onDelete: Cascade)
+
+  dayOfWeek Int // 0 = Sunday, 1 = Monday, etc.
+  startTime String // "HH:MM" format
+  endTime   String // "HH:MM" format
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vetId])
+}
+
+model VetTimeOff {
+  id    String     @id @default(cuid())
+  vetId String
+  vet   VetProfile @relation(fields: [vetId], references: [id], onDelete: Cascade)
+
+  startDate DateTime
+  endDate   DateTime
+  reason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vetId])
+}
+
+//  ADDRESS SYSTEM
+
+model Address {
+  id     String @id @default(cuid())
+  userId String
+
+  label String?
+
+  country    String
+  state      String
+  city       String
+  street1    String
+  street2    String?
+  postalCode String?
+
+  latitude  Float?
+  longitude Float?
+
+  isDefault Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relations
+  orders         Order[]
+  vetsWithClinic VetProfile[] @relation("VetClinicAddress")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId])
+}
+
+///////////////////////////////////////////////////////
+// ORGANIZATIONS (FARMS / BUSINESSES / CLINICS)
+///////////////////////////////////////////////////////
+
+model Organization {
+  id   String           @id @default(cuid())
+  name String
+  type OrganizationType
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id])
+
+  members   OrganizationMember[]
+  animals   Animal[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+}
+
+model OrganizationMember {
+  id String @id @default(cuid())
+
+  userId         String
+  organizationId String
+
+  role OrganizationRole
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, organizationId])
+}
+
+///////////////////////////////////////////////////////
+// ANIMALS & LIFECYCLE
+///////////////////////////////////////////////////////
+
+model AnimalSpecies {
+  id       String     @id @default(cuid())
+  name     String     @unique
+  category AnimalType
+
+  breeds  AnimalBreed[]
+  animals Animal[]
+}
+
+model AnimalBreed {
+  id        String @id @default(cuid())
+  speciesId String
+  name      String
+
+  species AnimalSpecies @relation(fields: [speciesId], references: [id], onDelete: Cascade)
+  animals Animal[]
+
+  @@unique([speciesId, name])
+}
+
+model Animal {
+  id String @id @default(cuid())
+
+  name     String?
+  type     AnimalType
+  species  String?
+  breed    String?
+  photoUrl String?
+
+  status AnimalStatus @default(ACTIVE)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerships AnimalOwnership[]
+
+  consultations Consultation[]
+  prescriptions Prescription[]
+
+  // New fields
+  sex                AnimalSex      @default(UNKNOWN)
+  color              String?
+  birthDate          DateTime?
+  estimatedAgeMonths Int?
+  ageType            AnimalAgeType?
+  healthStatus       HealthStatus   @default(HEALTHY)
+  microchipId        String?        @unique
+  slug               String?        @unique
+  weight             Float?
+  medicalNotes       String?
+
+  speciesId String?
+  breedId   String?
+
+  speciesRelation AnimalSpecies? @relation(fields: [speciesId], references: [id])
+  breedRelation   AnimalBreed?   @relation(fields: [breedId], references: [id])
+
+  // New relations
+  appointments   Appointment[]
+  medicalRecords MedicalRecord[]
+  vaccinations   Vaccination[]
+  healthLogs     AnimalHealthLog[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([speciesId])
+  @@index([microchipId])
+  @@index([slug])
+}
+
+model AnimalOwnership {
+  id String @id @default(cuid())
+
+  animalId String
+  userId   String
+
+  isActive  Boolean         @default(true)
+  status    OwnershipStatus
+  startDate DateTime        @default(now())
+  endDate   DateTime?
+
+  animal Animal @relation(fields: [animalId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([animalId])
+  @@index([userId])
+  @@index([animalId, endDate])
+}
+
+model AnimalHealthLog {
+  id       String @id @default(cuid())
+  animalId String
+
+  weight      Float?
+  temperature Float? // Celsius
+  heartRate   Int? // bpm
+  notes       String?
+
+  recordedAt DateTime @default(now())
+  recordedBy String? // userId (vet or owner)
+
+  animal Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  @@index([animalId, recordedAt])
+}
+
+///////////////////////////////////////////////////////
+// TELEMEDICINE
+///////////////////////////////////////////////////////
+
+model VetSlot {
+  id    String @id @default(cuid())
+  vetId String
+
+  startsAt DateTime
+  endsAt   DateTime
+  status   VetSlotStatus @default(AVAILABLE)
+
+  vet         VetProfile   @relation(fields: [vetId], references: [id], onDelete: Cascade)
+  appointment Appointment?
+
+  createdAt DateTime @default(now())
+
+  @@unique([vetId, startsAt])
+  @@index([vetId, status, startsAt])
+}
+
+model Appointment {
+  id       String  @id @default(cuid())
+  animalId String
+  ownerId  String
+  vetId    String
+  slotId   String? @unique
+
+  type   AppointmentType
+  status AppointmentStatus @default(PENDING)
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+
+  notes              String?
+  videoSessionId     String?
+  cancellationReason String?
+
+  animal Animal     @relation(fields: [animalId], references: [id])
+  owner  User       @relation(fields: [ownerId], references: [id])
+  vet    VetProfile @relation(fields: [vetId], references: [id])
+  slot   VetSlot?   @relation(fields: [slotId], references: [id])
+
+  consultation Consultation?
+  payment      Payment?
+  vetEarning   VetEarning?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([vetId, scheduledStart])
+  @@index([ownerId])
+  @@index([animalId])
+  @@index([status])
+}
+
+model Consultation {
+  id String @id @default(cuid())
+
+  animalId   String
+  vetId      String
+  customerId String
+
+  mode   ConsultationMode
+  status ConsultationStatus @default(SCHEDULED)
+
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  followUpExpiresAt DateTime?
+
+  notes String?
+
+  animal Animal @relation(fields: [animalId], references: [id])
+
+  vet      VetProfile @relation("VetConsultations", fields: [vetId], references: [id])
+  customer User       @relation("CustomerConsultations", fields: [customerId], references: [id])
+
+  prescriptions Prescription[]
+  chatMessages  ChatMessage[]
+
+  createdAt DateTime @default(now())
+
+  // Relation to booking appointment
+  appointmentId String?      @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@index([scheduledAt])
+  @@index([customerId])
+  @@index([vetId])
+  @@index([status])
+}
+
+model MedicalRecord {
+  id              String  @id @default(cuid())
+  animalId        String
+  recordedByVetId String?
+
+  title     String
+  diagnosis String?
+  treatment String?
+  notes     String?
+
+  attachments Json?
+
+  animal        Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  recordedByVet VetProfile? @relation(fields: [recordedByVetId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([animalId])
+  @@index([recordedByVetId])
+}
+
+model Vaccination {
+  id                  String  @id @default(cuid())
+  animalId            String
+  administeredByVetId String?
+
+  vaccineName    String
+  batchNumber    String?
+  administeredAt DateTime
+  nextDueAt      DateTime?
+  notes          String?
+
+  animal            Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  administeredByVet VetProfile? @relation(fields: [administeredByVetId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([animalId])
+  @@index([nextDueAt])
+}
+
+model VetEarning {
+  id            String @id @default(cuid())
+  vetId         String
+  appointmentId String @unique
+
+  grossAmount Decimal @db.Decimal(12, 2)
+  platformFee Decimal @db.Decimal(12, 2)
+  netAmount   Decimal @db.Decimal(12, 2)
+
+  status    EarningStatus @default(PENDING)
+  settledAt DateTime?
+
+  vet         VetProfile  @relation(fields: [vetId], references: [id])
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vetId, status])
+}
+
+model VetWithdrawal {
+  id    String @id @default(cuid())
+  vetId String
+
+  amount        Decimal          @db.Decimal(12, 2)
+  currency      String           @default("NGN")
+  status        WithdrawalStatus @default(PENDING)
+  bankName      String?
+  accountName   String?
+  accountNumber String?
+
+  processedAt     DateTime?
+  rejectionReason String?
+
+  vet VetProfile @relation(fields: [vetId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vetId, status])
+}
+
+///////////////////////////////////////////////////////
+// PRESCRIPTIONS
+///////////////////////////////////////////////////////
+
+model Prescription {
+  id String @id @default(cuid())
+
+  consultationId String
+  animalId       String
+  vetId          String
+
+  status PrescriptionStatus @default(ISSUED)
+
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime?
+
+  consultation Consultation @relation(fields: [consultationId], references: [id])
+  animal       Animal       @relation(fields: [animalId], references: [id])
+
+  items PrescriptionItem[]
+  vet   VetProfile         @relation(fields: [vetId], references: [id])
+
+  @@index([animalId])
+  @@index([vetId])
+  @@index([consultationId])
+}
+
+model PrescriptionItem {
+  id String @id @default(cuid())
+
+  prescriptionId String
+  productId      String?
+  product        Product? @relation(fields: [productId], references: [id])
+  name           String
+  dosage         String
+  instructions   String?
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id])
+
+  @@index([productId])
+}
+
+///////////////////////////////////////////////////////
+// MARKETPLACE
+///////////////////////////////////////////////////////
+
+model Product {
+  id String @id @default(cuid())
+
+  name        String
+  description String?
+
+  prescriptionItems    PrescriptionItem[]
+  requiresPrescription Boolean            @default(false)
+
+  vendorListings VendorProduct[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  reviews        ProductReview[]
+}
+
+model VendorProduct {
+  id String @id @default(cuid())
+
+  vendorId  String
+  productId String
+
+  price   Decimal
+  stock   Int
+  version Int     @default(0)
+
+  vendor  VendorProfile @relation(fields: [vendorId], references: [id])
+  product Product       @relation(fields: [productId], references: [id])
+
+  orderItems OrderItem[]
+
+  // New Listing Attributes
+  sku            String?  @unique
+  slug           String?  @unique
+  compareAtPrice Decimal? @db.Decimal(12, 2)
+  weight         Float?
+  attributes     Json?
+  isActive       Boolean  @default(true)
+
+  cartItems CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendorId, productId])
+  @@index([productId])
+  @@index([slug])
+}
+
+// PROMOTIONS & COUPONS
+
+model Coupon {
+  id String @id @default(cuid())
+
+  code          String       @unique
+  description   String?
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(12, 2)
+
+  minOrderAmount Decimal? @db.Decimal(12, 2)
+  maxUses        Int?
+  usedCount      Int      @default(0)
+
+  vendorId   String?
+  categoryId String?
+
+  startsAt  DateTime?
+  expiresAt DateTime?
+  isActive  Boolean   @default(true)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive, expiresAt])
+}
+
+// CART
+
+model Cart {
+  id     String @id @default(cuid())
+  userId String
+
+  status   CartStatus @default(ACTIVE)
+  currency String     @default("NGN")
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, status], name: "one_active_cart_per_user", map: "cart_user_active_unique")
+}
+
+model CartItem {
+  id              String @id @default(cuid())
+  cartId          String
+  vendorProductId String
+
+  quantity  Int     @default(1)
+  unitPrice Decimal @db.Decimal(12, 2)
+
+  cart          Cart          @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  vendorProduct VendorProduct @relation(fields: [vendorProductId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, vendorProductId])
+}
+
+///////////////////////////////////////////////////////
+// ORDERS
+///////////////////////////////////////////////////////
+
+model Order {
+  id String @id @default(cuid())
+
+  userId String
+  user   User        @relation(fields: [userId], references: [id])
+  status OrderStatus @default(PENDING)
+
+  totalAmount Decimal
+
+  createdAt DateTime @default(now())
+
+  items     OrderItem[]
+  updatedAt DateTime    @updatedAt
+
+  // New details
+  shippingAddressId String?
+  shippingAddress   Address? @relation(fields: [shippingAddressId], references: [id])
+  subtotal          Decimal? @db.Decimal(12, 2)
+  shippingCost      Decimal? @db.Decimal(12, 2)
+  discountAmount    Decimal? @default(0) @db.Decimal(12, 2)
+  taxAmount         Decimal? @default(0) @db.Decimal(12, 2)
+
+  couponId   String?
+  couponCode String?
+  notes      String?
+
+  coupon   Coupon?   @relation(fields: [couponId], references: [id])
+  payments Payment[]
+  shipment Shipment?
+
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id String @id @default(cuid())
+
+  orderId         String
+  vendorProductId String
+
+  quantity  Int
+  unitPrice Decimal
+
+  order         Order         @relation(fields: [orderId], references: [id])
+  vendorProduct VendorProduct @relation(fields: [vendorProductId], references: [id])
+
+  // Snapshots
+  totalPrice  Decimal? @db.Decimal(12, 2)
+  productName String?
+  variantName String?
+  variantSku  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([vendorProductId])
+}
+
+model Shipment {
+  id      String @id @default(cuid())
+  orderId String @unique
+
+  status         ShipmentStatus @default(PENDING)
+  courierName    String?
+  trackingNumber String?
+  trackingUrl    String?
+
+  estimatedDelivery DateTime?
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  events ShipmentEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ShipmentEvent {
+  id         String @id @default(cuid())
+  shipmentId String
+
+  status      ShipmentStatus
+  description String?
+  location    String?
+  occurredAt  DateTime       @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+}
+
+// PAYMENTS
+
+model Payment {
+  id String @id @default(cuid())
+
+  userId        String
+  purpose       PaymentPurpose
+  orderId       String?        @unique
+  appointmentId String?        @unique
+
+  amount   Decimal @db.Decimal(12, 2)
+  currency String  @default("NGN")
+
+  provider         PaymentProvider
+  status           PaymentStatus   @default(PENDING)
+  reference        String          @unique
+  idempotencyKey   String?         @unique
+  providerResponse Json?
+  paidAt           DateTime?
+
+  user        User         @relation(fields: [userId], references: [id])
+  order       Order?       @relation(fields: [orderId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  transactions  PaymentTransaction[]
+  refunds       PaymentRefund[]
+  ledgerEntries LedgerEntry[]
+  stateEvents   PaymentEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([reference])
+}
+
+model PaymentTransaction {
+  id        String @id @default(cuid())
+  paymentId String
+
+  providerReference String?
+  amount            Decimal       @db.Decimal(12, 2)
+  status            PaymentStatus
+  rawResponse       Json?
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+}
+
+model PaymentRefund {
+  id        String @id @default(cuid())
+  paymentId String
+
+  amount    Decimal       @db.Decimal(12, 2)
+  reason    String?
+  status    PaymentStatus @default(PENDING)
+  reference String        @unique
+
+  payment       Payment       @relation(fields: [paymentId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([paymentId])
+}
+
+// NEW ENUMS & MODELS FOR PAYMENT AUDITING & ACCOUNTING
+
+enum LedgerAccountType {
+  CUSTOMER_WALLET
+  VET_BALANCE
+  VENDOR_BALANCE
+  PLATFORM_REVENUE
+  ESCROW
+  EXTERNAL_PROVIDER
+}
+
+enum LedgerEntryType {
+  CREDIT
+  DEBIT
+}
+
+enum PaymentEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model PaymentEvent {
+  id         String        @id @default(cuid())
+  paymentId  String
+  eventType  String // e.g., "payment.completed", "payment.failed"
+  fromStatus PaymentStatus
+  toStatus   PaymentStatus
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([eventType])
+}
+
+model LedgerEntry {
+  id          String            @id @default(cuid())
+  paymentId   String?
+  refundId    String?
+  accountType LedgerAccountType
+  accountId   String // ID of User, VetProfile, VendorProfile, or "PLATFORM"
+  amount      Decimal           @db.Decimal(12, 2)
+  type        LedgerEntryType
+  currency    String            @default("NGN")
+  reference   String            @unique
+  description String?
+  createdAt   DateTime          @default(now())
+
+  payment Payment?       @relation(fields: [paymentId], references: [id])
+  refund  PaymentRefund? @relation(fields: [refundId], references: [id])
+
+  @@index([accountId, accountType])
+  @@index([paymentId])
+  @@index([refundId])
+  @@index([createdAt])
+}
+
+model WebhookEventLog {
+  id           String             @id @default(cuid())
+  provider     PaymentProvider
+  eventId      String             @unique
+  status       PaymentEventStatus @default(RECEIVED)
+  payload      Json
+  errorMessage String?
+  createdAt    DateTime           @default(now())
+  processedAt  DateTime?
+
+  @@index([eventId])
+  @@index([status])
+}
+
+///////////////////////////////////////////////////////
+// OUTBOX EVENT
+///////////////////////////////////////////////////////
+
+model OutboxEvent {
+  id        String  @id @default(cuid())
+  type      String
+  payload   Json
+  published Boolean @default(false)
+
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@index([published])
+  @@index([type])
+}
+
+model DirectChannel {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customerId String
+  vetId      String
+
+  isActive Boolean       @default(true)
+  messages ChatMessage[]
+
+  customer User       @relation("CustomerDirectChannels", fields: [customerId], references: [id])
+  vet      VetProfile @relation("VetDirectChannels", fields: [vetId], references: [id])
+
+  @@unique([customerId, vetId])
+  @@index([vetId])
+}
+
+model ChatMessage {
+  id String @id @default(cuid())
+
+  senderId String
+
+  content String?
+
+  type MessageType @default(TEXT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  deletedAt DateTime?
+
+  readAt DateTime?
+
+  consultationId String?
+  channelId      String?
+
+  isFollowUp Boolean @default(false)
+
+  consultation Consultation?  @relation(fields: [consultationId], references: [id])
+  channel      DirectChannel? @relation(fields: [channelId], references: [id])
+  sender       User           @relation(fields: [senderId], references: [id])
+
+  attachments ChatMessageAttachment[]
+
+  @@index([consultationId, createdAt])
+  @@index([channelId, createdAt])
+  @@index([senderId])
+}
+
+model ChatMessageAttachment {
+  id        String         @id @default(cuid())
+  messageId String
+  url       String
+  type      AttachmentType
+  size      Int?
+  createdAt DateTime       @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model VetReview {
+  id String @id @default(cuid())
+
+  reviewerId String
+  vetId      String
+
+  consultationId String @unique
+
+  rating  Int
+  comment String?
+
+  status ReviewStatus @default(PUBLISHED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviewer User       @relation(fields: [reviewerId], references: [id])
+  vet      VetProfile @relation(fields: [vetId], references: [id])
+
+  // New
+  isVerified Boolean @default(false)
+
+  @@index([vetId])
+  @@index([reviewerId])
+}
+
+model VendorReview {
+  id String @id @default(cuid())
+
+  reviewerId String
+  vendorId   String
+
+  orderId String
+
+  rating  Int
+  comment String?
+
+  status ReviewStatus @default(PUBLISHED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviewer User          @relation(fields: [reviewerId], references: [id])
+  vendor   VendorProfile @relation(fields: [vendorId], references: [id])
+
+  @@index([vendorId])
+  @@index([reviewerId])
+}
+
+model ProductReview {
+  id String @id @default(cuid())
+
+  reviewerId String
+  productId  String
+
+  orderId String
+
+  rating  Int
+  title   String?
+  comment String?
+
+  status ReviewStatus @default(PUBLISHED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviewer User    @relation(fields: [reviewerId], references: [id])
+  product  Product @relation(fields: [productId], references: [id])
+
+  // New
+  isVerified Boolean @default(false)
+
+  @@index([productId])
+  @@index([reviewerId])
+}
+
+// UTILITIES & NOTIFICATIONS
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+
+  type  NotificationType
+  title String
+  body  String
+  data  Json?
+
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model WebhookEvent {
+  id String @id @default(cuid())
+
+  provider    String
+  eventType   String
+  eventId     String
+  payload     Json
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+  @@index([processed, createdAt])
+}
+
+model FeatureFlag {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  description String?
+  isEnabled   Boolean @default(false)
+
+  allowList Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
