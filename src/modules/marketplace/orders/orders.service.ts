@@ -1,9 +1,9 @@
 import { Injectable, BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { LedgerService } from '../../payments/services/ledger.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { Prisma } from '@prisma/client';
-import { PaginationDto } from '../../../core/dto/pagination.dto';
+import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
 @Injectable()
 export class OrdersService {

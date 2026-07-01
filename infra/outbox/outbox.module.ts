@@ -3,8 +3,8 @@ import { OutboxService } from './outbox.service';
 import { OutboxProcessor } from './outbox.processor';
 import { OutboxWorker } from './outbox.worker';
 import { BullModule } from '@nestjs/bullmq';
-import { PaymentsModule } from '../../modules/payments/payments.module';
-import { NotificationsQueueModule } from '../notifications-queue/notifications-queue.module';
+import { PaymentsModule } from '../../src/modules/payments/payments.module';
+import { NotificationsQueueModule } from '../queues/notifications-queue/notifications-queue.module';
 
 @Module({
   imports: [

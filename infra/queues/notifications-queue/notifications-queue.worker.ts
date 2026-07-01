@@ -2,8 +2,8 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
-import { getEmailTemplate } from '../utils/email-templates';
-import { PrismaService } from '../prisma/prisma.service';
+import { getEmailTemplate } from '../../../common/utils/email-templates';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Processor('notifications')
 export class NotificationsQueueWorker extends WorkerHost {

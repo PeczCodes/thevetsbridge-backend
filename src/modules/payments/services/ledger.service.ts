@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { Prisma, LedgerAccountType, LedgerEntryType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 

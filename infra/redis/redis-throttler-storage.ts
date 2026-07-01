@@ -1,12 +1,16 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface';
 import Redis from 'ioredis';
 
 @Injectable()
 export class RedisThrottlerStorage implements ThrottlerStorage {
+  private readonly logger = new Logger(RedisThrottlerStorage.name);
+
   constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
 
+  
+  
   async increment(
     key: string,
     ttl: number, // in milliseconds
@@ -16,7 +20,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   ): Promise<ThrottlerStorageRecord> {
     const ttlSeconds = Math.ceil(ttl / 1000);
     const blockSeconds = Math.ceil(blockDuration / 1000);
-
+    
+    
+    
     const countKey = `throttler:${key}:${throttlerName}:count`;
     const blockKey = `throttler:${key}:${throttlerName}:blocked`;
 
@@ -44,23 +50,33 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       return {hits, keyTtl, 0, 0}
     `;
 
-    const result = (await this.redis.eval(
-      luaScript,
-      2,
-      countKey,
-      blockKey,
-      ttlSeconds,
-      limit,
-      blockSeconds,
-    )) as [number, number, number, number];
+    try {
+      const result = (await this.redis.eval(
+        luaScript,
+        2,
+        countKey,
+        blockKey,
+        ttlSeconds,
+        limit,
+        blockSeconds,
+      )) as [number, number, number, number];
 
-    const [totalHits, timeToExpire, isBlockedVal, timeToBlockExpire] = result;
+      const [totalHits, timeToExpire, isBlockedVal, timeToBlockExpire] = result;
 
-    return {
-      totalHits,
-      timeToExpire,
-      isBlocked: isBlockedVal === 1,
-      timeToBlockExpire,
-    };
+      return {
+        totalHits,
+        timeToExpire,
+        isBlocked: isBlockedVal === 1,
+        timeToBlockExpire,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Redis throttler storage error: ${error.message}. Falling back to open failsafe.`);
+      return {
+        totalHits: 1,
+        timeToExpire: ttlSeconds,
+        isBlocked: false,
+        timeToBlockExpire: 0,
+      };
+    }
   }
 }

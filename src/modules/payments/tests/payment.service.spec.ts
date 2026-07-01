@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentService } from '../services/payment.service';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaystackProvider } from '../providers/paystack.provider';
+import { LedgerService } from '../services/ledger.service';
 import { PaymentPurpose, PaymentStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -10,6 +11,7 @@ describe('PaymentService', () => {
   let service: PaymentService;
   let prismaMock: any;
   let paystackMock: any;
+  let ledgerMock: any;
 
   beforeEach(async () => {
     prismaMock = {
@@ -18,6 +20,7 @@ describe('PaymentService', () => {
         create: jest.fn(),
         delete: jest.fn(),
         findUnique: jest.fn(),
+        update: jest.fn(),
       },
       order: {
         findUnique: jest.fn(),
@@ -29,6 +32,11 @@ describe('PaymentService', () => {
 
     paystackMock = {
       initializeTransaction: jest.fn(),
+      verifyTransaction: jest.fn(),
+    };
+
+    ledgerMock = {
+      recordPaymentLedgerEntries: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -36,6 +44,7 @@ describe('PaymentService', () => {
         PaymentService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: PaystackProvider, useValue: paystackMock },
+        { provide: LedgerService, useValue: ledgerMock },
       ],
     }).compile();
 
@@ -106,18 +115,25 @@ describe('PaymentService', () => {
         reference: existingRef,
       });
 
-      paystackMock.initializeTransaction.mockResolvedValue({
-        authorizationUrl: 'https://checkout.paystack.co/auth',
-        reference: existingRef,
+      paystackMock.verifyTransaction.mockResolvedValue({
+        status: 'failed',
+        amountPaid: new Decimal(0),
+        currency: 'NGN',
+        gatewayResponse: 'Not paid yet',
       });
+
+      paystackMock.initializeTransaction.mockImplementation((email, amount, ref) => Promise.resolve({
+        authorizationUrl: 'https://checkout.paystack.co/auth',
+        reference: ref,
+      }));
 
       const result = await service.initiatePayment(userId, email, purpose, targetId, callbackUrl);
 
-      expect(result.reference).toBe(existingRef);
+      expect(result.reference).toContain('VETS-ORD-');
       expect(paystackMock.initializeTransaction).toHaveBeenCalledWith(
         email,
         new Decimal(amount),
-        existingRef,
+        result.reference,
         callbackUrl,
         expect.objectContaining({ userId, purpose, targetId }),
       );

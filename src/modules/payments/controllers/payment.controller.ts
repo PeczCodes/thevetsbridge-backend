@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, UseGuards, Headers } from '@nestjs/common';
 import { PaymentService } from '../services/payment.service';
 import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
@@ -25,14 +25,16 @@ export class PaymentController {
   @ApiResponse({ status: 400, description: 'Payment already completed or invalid request inputs.' })
   async initiate(
     @CurrentUser() user: any,
-    @Body() dto: InitiatePaymentDto
+    @Body() dto: InitiatePaymentDto,
+    @Headers('x-idempotency-key') idempotencyKey?: string,
   ) {
     return this.paymentService.initiatePayment(
       user.id,
       user.email,
       dto.purpose,
       dto.targetId,
-      dto.callbackUrl
+      dto.callbackUrl,
+      idempotencyKey,
     );
   }
 

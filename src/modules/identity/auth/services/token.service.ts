@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../../infra/prisma/prisma.service';
 import { HashingService } from './hash.service';
 import { randomUUID } from 'crypto';
 

@@ -2,10 +2,10 @@ import { Injectable, UnauthorizedException, ConflictException, Logger } from '@n
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { HashingService } from './services/hash.service';
 import { TokenService } from './services/token.service';
-import { generateSlug, uniqueSlug } from '../../../core/utils/slug';
+import { generateSlug, uniqueSlug } from '../../../../common/utils/slug';
 import { randomUUID } from 'crypto';
 
 @Injectable()

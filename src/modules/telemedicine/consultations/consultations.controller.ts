@@ -1,12 +1,13 @@
-import { Controller, Post, Body, Get, UseGuards, Param, Patch, Query, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Param, Patch, Query, Headers, UseInterceptors } from '@nestjs/common';
 import { ConsultationsService } from './consultations.service';
 import { ScheduleConsultationDto } from './dto/schedule-consultation.dto';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
 import { RequireProfile } from '../../identity/auth/decorators/require-profile.decorator';
 import { RequireProfileGuard } from '../../identity/auth/guards/require-profile.guard';
 import { ConsultationStatus } from '@prisma/client';
-import { Idempotent } from '../../../core/decorators/idempotent.decorator';
-import { PaginationDto } from '../../../core/dto/pagination.dto';
+import { Idempotent } from '../../../../common/decorators/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../../../common/interceptors/idempotency.interceptor';
+import { PaginationDto } from '../../../../common/dto/pagination.dto';
 import { Public } from '../../identity/auth/decorators/public.decorator';
 import { GetConsultationsDto } from './dto/get-consultations.dto';
 
@@ -15,6 +16,7 @@ export class ConsultationsController {
   constructor(private readonly consultationsService: ConsultationsService) {}
 
   @Post()
+  @UseInterceptors(IdempotencyInterceptor)
   @Idempotent()
   async scheduleConsultation(
     @CurrentUser() user: any,

@@ -1,8 +1,9 @@
-import { Controller, Post, Body, Get, Query, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Patch, Param, Delete, UseInterceptors } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Idempotent } from '../../../core/decorators/idempotent.decorator';
+import { Idempotent } from '../../../../common/decorators/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../../../common/interceptors/idempotency.interceptor';
 import { GetMyOrdersDto } from './dto/get-my-orders.dto';
 import { Throttle } from '@nestjs/throttler';
 
@@ -12,6 +13,7 @@ export class OrdersController {
 
   @Post()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @UseInterceptors(IdempotencyInterceptor)
   @Idempotent()
   async placeOrder(@CurrentUser() user: any, @Body() dto: PlaceOrderDto) {
     return this.ordersService.placeOrder(user.id, dto);

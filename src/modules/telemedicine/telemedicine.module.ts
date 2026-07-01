@@ -5,7 +5,7 @@ import { ConsultationsController } from './consultations/consultations.controlle
 import { PrescriptionsController } from './prescriptions/prescriptions.controller';
 import { VetsController } from './vets/vets.controller';
 import { VetAvailabilityController } from './vets/vet-availability.controller';
-import { PrismaModule } from '../../core/prisma/prisma.module';
+import { PrismaModule } from '../../../infra/prisma/prisma.module';
 import { AnimalsModule } from '../animals/animals.module';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';

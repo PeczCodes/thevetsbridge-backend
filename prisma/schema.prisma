@@ -372,7 +372,7 @@ model VendorProfile {
   avatarUrl       String?
   status          ApplicationStatus @default(PENDING)
   rejectionReason String?
-  rating          Float             @default(0)
+  rating          Float             @default(5.0)
   totalSales      Int               @default(0)
   bio             String?
   slug            String?           @unique

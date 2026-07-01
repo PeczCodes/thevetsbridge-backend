@@ -1,8 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { PaymentEventEmitter } from '../../modules/payments/events/payment-event.emitter';
-import { NotificationsQueueService } from '../notifications-queue/notifications-queue.service';
+import { PaymentEventEmitter } from '../../src/modules/payments/events/payment-event.emitter';
+import { NotificationsQueueService } from '../queues/notifications-queue/notifications-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Processor('outbox-events')

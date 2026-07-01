@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../core/prisma/prisma.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
 
 const PET_KEYWORDS = [
   'dog', 'cat', 'puppy', 'kitten', 'pet', 'bird', 'fish', 
@@ -84,12 +84,15 @@ export class SearchService {
 
       const isLivestock = LIVESTOCK_KEYWORDS.some((kw) => textBlock.includes(kw));
 
+      const images = (listing.attributes as any)?.images;
+      const imageUrl = Array.isArray(images) && images.length > 0 ? images[0] : undefined;
+
       const formattedProduct = {
         id: listing.id,
         name: listing.product.name,
         category: isLivestock ? 'livestock' : 'pets',
         rating: 5.0,
-        image: undefined, // fallback handles this since images aren't stored in DB
+        image: imageUrl,
         subtitle: `₦${Number(listing.price).toLocaleString()}`,
         consultations: '0',
       };

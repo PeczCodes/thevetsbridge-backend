@@ -1,9 +1,9 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../core/prisma/prisma.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { CreateAnimalDto } from './dto/create-animal.dto';
 import { UpdateAnimalDto } from './dto/update-animal.dto';
 import { OrganizationsService } from '../organizations/organizations.service';
-import { generateSlug, uniqueSlug } from '../../core/utils/slug';
+import { generateSlug, uniqueSlug } from '../../../common/utils/slug';
 
 export function formatExactAge(birthDate: Date): string {
   const now = new Date();

@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../../core/prisma/prisma.service';
+import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { CreateListingDto } from './dto/create-listing.dto';
-import { generateSlug, uniqueSlug } from '../../core/utils/slug';
+import { generateSlug, uniqueSlug } from '../../../common/utils/slug';
 
 @Injectable()
 export class MarketplaceService {

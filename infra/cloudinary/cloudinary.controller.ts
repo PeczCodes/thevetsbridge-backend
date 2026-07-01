@@ -1,6 +1,6 @@
 import { Controller, Get, Delete, Query, BadRequestException } from '@nestjs/common';
 import { CloudinaryService } from './cloudinary.service';
-import { CurrentUser } from '../../modules/identity/auth/decorators/current-user.decorator';
+import { CurrentUser } from '../../src/modules/identity/auth/decorators/current-user.decorator';
 
 @Controller('cloudinary')
 export class CloudinaryController {

@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import { PaginationDto } from '../../../core/dto/pagination.dto';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
+import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
 @Injectable()
 export class DirectMessagingService {

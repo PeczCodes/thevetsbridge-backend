@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger, Injectable } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaymentService } from '../services/payment.service';
 
 @Processor('payment-verification-queue')

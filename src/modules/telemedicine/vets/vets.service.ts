@@ -1,8 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { ConsultationsService } from '../consultations/consultations.service';
 import { VetSpecialization } from '@prisma/client';
-import { generateSlug, uniqueSlug } from '../../../core/utils/slug';
+import { generateSlug, uniqueSlug } from '../../../../common/utils/slug';
 
 @Injectable()
 export class VetsService {

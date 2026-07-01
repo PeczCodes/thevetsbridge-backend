@@ -11,7 +11,7 @@ import { Reflector } from '@nestjs/core';
 import Redis from 'ioredis';
 import { Observable, from, of } from 'rxjs';
 import { mergeMap, catchError } from 'rxjs/operators';
-import { REDIS_CLIENT } from '../redis/redis.module';
+import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { IDEMPOTENT_KEY } from '../decorators/idempotent.decorator';
 
 @Injectable()

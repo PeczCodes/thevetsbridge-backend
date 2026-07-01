@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { OrganizationsService } from './organizations.service';
 import { OrganizationMembersService } from './services/organization-members.service';
 import { OrganizationsController } from './organizations.controller';
-import { PrismaModule } from '../../core/prisma/prisma.module';
+import { PrismaModule } from '../../../infra/prisma/prisma.module';
 
 @Module({
   imports: [PrismaModule],

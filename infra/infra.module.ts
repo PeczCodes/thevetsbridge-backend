@@ -2,32 +2,40 @@ import { Module, Global } from '@nestjs/common';
 import { PrismaModule } from './prisma/prisma.module';
 import { OutboxModule } from './outbox/outbox.module';
 import { APP_FILTER, APP_PIPE, APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
-import { HttpExceptionFilter } from './filters/http-exception.filter';
+import { HttpExceptionFilter } from '../common/filters/http-exception.filter';
 import { ValidationPipe } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RedisModule } from './redis/redis.module';
 import { CacheModule } from './cache/cache.module';
-import { IdempotencyInterceptor } from './interceptors/idempotency.interceptor';
+import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { RedisThrottlerStorage } from './redis/redis-throttler-storage';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { NotificationsQueueModule } from './queues/notifications-queue/notifications-queue.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Global()
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     OutboxModule,
     RedisModule,
     CacheModule,
+    CloudinaryModule,
+    NotificationsQueueModule,
+    MetricsModule,
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
-      inject: [RedisThrottlerStorage],
-      useFactory: (storage: RedisThrottlerStorage) => [
+      inject: [RedisThrottlerStorage, ConfigService],
+      useFactory: (
+        storage: RedisThrottlerStorage,
+        configService: ConfigService,
+      ) => [
         {
-          ttl: 60000, // 60 seconds
-          limit: 100, // limit to 100 requests per window
-          storage,
+          ttl: configService.getOrThrow('throttler.ttl'), // 60 seconds
+          limit: configService.getOrThrow('throttler.limit'), // limit to 100 requests per window
+          storage
         },
       ],
     }),
@@ -55,15 +63,14 @@ import { RedisThrottlerStorage } from './redis/redis-throttler-storage';
         transform: true,
       }),
     },
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: IdempotencyInterceptor,
-    },
+    IdempotencyInterceptor,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
   ],
-  exports: [PrismaModule, OutboxModule, RedisModule, CacheModule],
+  exports: [
+    IdempotencyInterceptor,
+  ],
 })
-export class CoreModule {}
+export class InfraModule {}

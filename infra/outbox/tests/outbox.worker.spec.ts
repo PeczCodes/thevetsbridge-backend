@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OutboxWorker } from '../outbox.worker';
-import { PaymentEventEmitter } from '../../../modules/payments/events/payment-event.emitter';
-import { NotificationsQueueService } from '../../notifications-queue/notifications-queue.service';
+import { PaymentEventEmitter } from '../../../src/modules/payments/events/payment-event.emitter';
+import { NotificationsQueueService } from '../../queues/notifications-queue/notifications-queue.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Job } from 'bullmq';
 

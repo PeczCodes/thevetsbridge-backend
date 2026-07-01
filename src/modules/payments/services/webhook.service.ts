@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaystackProvider } from '../providers/paystack.provider';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';

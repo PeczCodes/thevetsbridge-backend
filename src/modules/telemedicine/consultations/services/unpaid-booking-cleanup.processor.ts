@@ -1,7 +1,7 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
-import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../../infra/prisma/prisma.service';
 
 @Processor('unpaid-booking-cleanup')
 @Injectable()
@@ -72,7 +72,7 @@ export class UnpaidBookingCleanupProcessor extends WorkerHost implements OnAppli
         });
 
         if (unpaidAppointments.length === 0) {
-          return { cancelledCount: 0 };
+          return { cancelledCount: 0, consultationsCancelled: 0 };
         }
 
         const appointmentIds = unpaidAppointments.map((a) => a.id);

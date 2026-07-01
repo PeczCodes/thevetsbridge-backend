@@ -3,7 +3,7 @@ import { DirectMessagingService } from './direct-messaging.service';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
 import { RequireProfile } from '../../identity/auth/decorators/require-profile.decorator';
 import { RequireProfileGuard } from '../../identity/auth/guards/require-profile.guard';
-import { PaginationDto } from '../../../core/dto/pagination.dto';
+import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
 @Controller('direct-messages')
 export class DirectMessagingController {

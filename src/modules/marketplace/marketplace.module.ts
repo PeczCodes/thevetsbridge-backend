@@ -5,8 +5,8 @@ import { CartService } from './cart/cart.service';
 import { MarketplaceController } from './marketplace.controller';
 import { OrdersController } from './orders/orders.controller';
 import { CartController } from './cart/cart.controller';
-import { VendorController } from './vendor.controller';
-import { PrismaModule } from '../../core/prisma/prisma.module';
+import { VendorController } from './vendor/vendor.controller';
+import { PrismaModule } from '../../../infra/prisma/prisma.module';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({

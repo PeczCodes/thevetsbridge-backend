@@ -1,8 +1,8 @@
 import { Controller, Get, Post, Put, Body, Param, UseGuards } from '@nestjs/common';
-import { MarketplaceService } from './marketplace.service';
-import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { RequireProfile } from '../identity/auth/decorators/require-profile.decorator';
-import { RequireProfileGuard } from '../identity/auth/guards/require-profile.guard';
+import { MarketplaceService } from '../marketplace.service';
+import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
+import { RequireProfile } from '../../identity/auth/decorators/require-profile.decorator';
+import { RequireProfileGuard } from '../../identity/auth/guards/require-profile.guard';
 
 @Controller('vendor')
 @RequireProfile('VENDOR')

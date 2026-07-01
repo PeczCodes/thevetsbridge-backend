@@ -1,9 +1,9 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { ScheduleConsultationDto } from './dto/schedule-consultation.dto';
 import { ConsultationStatus } from '@prisma/client';
 import { AnimalsService } from '../../animals/animals.service';
-import { PaginationDto } from '../../../core/dto/pagination.dto';
+import { PaginationDto } from '../../../../common/dto/pagination.dto';
 import { ConfigService } from '@nestjs/config';
 import { AccessToken, WebhookReceiver } from 'livekit-server-sdk';
 import { GetConsultationsDto } from './dto/get-consultations.dto';

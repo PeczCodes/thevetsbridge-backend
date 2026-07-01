@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, UnauthorizedException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { User } from '@prisma/client';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { HashingService } from '../auth/services/hash.service';
@@ -45,6 +45,15 @@ export class UsersService {
     }
 
     if (dto.phone !== undefined) {
+      const existing = await this.prisma.user.findFirst({
+        where: {
+          phone: dto.phone,
+          id: { not: id },
+        },
+      });
+      if (existing) {
+        throw new BadRequestException('A user with this phone number already exists');
+      }
       data.phone = dto.phone;
     }
 

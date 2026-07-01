@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaystackProvider } from '../providers/paystack.provider';
 import { LedgerService } from './ledger.service';
 import { Prisma, PaymentPurpose, PaymentStatus, PaymentProvider } from '@prisma/client';
@@ -25,7 +25,8 @@ export class PaymentService {
     email: string,
     purpose: PaymentPurpose,
     targetId: string,
-    callbackUrl: string
+    callbackUrl: string,
+    idempotencyKey?: string
   ) {
     const correlationId = crypto.randomUUID();
     this.logger.log(`[Correlation ID: ${correlationId}] Initiating payment process for User: ${userId}, Target: ${targetId}, Purpose: ${purpose}`);
@@ -124,23 +125,87 @@ export class PaymentService {
     const randomBytes = crypto.randomBytes(6).toString('hex').toUpperCase();
     const reference = `VETS-${purpose.substring(0, 3)}-${Date.now()}-${randomBytes}`;
 
-    // 3. Create initial PENDING payment record in database
-    this.logger.log(`[Correlation ID: ${correlationId}] Creating new Payment record with Reference: ${reference}`);
-    const payment = await this.prisma.payment.create({
-      data: {
-        userId,
-        purpose,
-        amount: parsedAmount,
-        currency: 'NGN',
-        provider: PaymentProvider.PAYSTACK,
-        status: PaymentStatus.PENDING,
-        reference,
-        orderId: purpose === PaymentPurpose.ORDER ? targetId : null,
-        appointmentId: purpose === PaymentPurpose.APPOINTMENT ? targetId : null,
-      },
-    });
+    // 3. Determine dbIdempotencyKey (use header key if available, else fallback to natural target key)
+    const dbIdempotencyKey = idempotencyKey || (purpose === PaymentPurpose.ORDER 
+      ? `ORDER_${targetId}` 
+      : `APPOINTMENT_${targetId}`);
 
-    // 4. Request Checkout link from Paystack API
+    // 4. Create initial PENDING payment record in database
+    this.logger.log(`[Correlation ID: ${correlationId}] Creating new Payment record with Reference: ${reference}, IdempotencyKey: ${dbIdempotencyKey}`);
+    
+    let payment;
+    try {
+      payment = await this.prisma.payment.create({
+        data: {
+          userId,
+          purpose,
+          amount: parsedAmount,
+          currency: 'NGN',
+          provider: PaymentProvider.PAYSTACK,
+          status: PaymentStatus.PENDING,
+          reference,
+          idempotencyKey: dbIdempotencyKey,
+          orderId: purpose === PaymentPurpose.ORDER ? targetId : null,
+          appointmentId: purpose === PaymentPurpose.APPOINTMENT ? targetId : null,
+        },
+      });
+    } catch (error: any) {
+      if (
+        error.code === 'P2002' && 
+        (error.meta?.target?.includes('idempotencyKey') || 
+         error.meta?.target?.includes('orderId') || 
+         error.meta?.target?.includes('appointmentId'))
+      ) {
+        this.logger.log(`[Correlation ID: ${correlationId}] Concurrency check: Unique key conflict detected. Fetching existing payment record...`);
+        const concurrentPayment = await this.prisma.payment.findFirst({
+          where: {
+            OR: [
+              { orderId: purpose === PaymentPurpose.ORDER ? targetId : undefined },
+              { appointmentId: purpose === PaymentPurpose.APPOINTMENT ? targetId : undefined },
+            ].filter(Boolean) as any,
+          },
+        });
+
+        if (!concurrentPayment) {
+          throw error;
+        }
+
+        if (
+          concurrentPayment.status === PaymentStatus.SUCCEEDED ||
+          concurrentPayment.status === PaymentStatus.PAID_IN_ESCROW ||
+          concurrentPayment.status === PaymentStatus.RELEASED
+        ) {
+          throw new BadRequestException('This order or appointment has already been paid for');
+        }
+
+        const newRandomBytes = crypto.randomBytes(6).toString('hex').toUpperCase();
+        const newReference = `VETS-${purpose.substring(0, 3)}-${Date.now()}-${newRandomBytes}`;
+
+        this.logger.log(`[Correlation ID: ${correlationId}] Re-initializing checkout with NEW reference ${newReference} for concurrent Payment ID: ${concurrentPayment.id}`);
+        
+        await this.prisma.payment.update({
+          where: { id: concurrentPayment.id },
+          data: { reference: newReference },
+        });
+
+        const paystackResult = await this.paystackProvider.initializeTransaction(
+          email,
+          parsedAmount,
+          newReference,
+          callbackUrl,
+          { userId, purpose, targetId, correlationId }
+        );
+
+        return {
+          paymentId: concurrentPayment.id,
+          reference: newReference,
+          authorizationUrl: paystackResult.authorizationUrl,
+        };
+      }
+      throw error;
+    }
+
+    // 5. Request Checkout link from Paystack API
     try {
       this.logger.log(`[Correlation ID: ${correlationId}] Initializing transaction with Paystack API`);
       const paystackResult = await this.paystackProvider.initializeTransaction(
