@@ -10,10 +10,16 @@ import { RedisModule } from './redis/redis.module';
 import { CacheModule } from './cache/cache.module';
 import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { CustomThrottlerGuard } from './throttler/custom-throttler.guard';
 import { RedisThrottlerStorage } from './redis/redis-throttler-storage';
-import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { CloudinaryModule } from '../src/cloudinary/cloudinary.module';
 import { NotificationsQueueModule } from './queues/notifications-queue/notifications-queue.module';
-import { MetricsModule } from './metrics/metrics.module';
+import { MetricsModule } from '../src/metrics/metrics.module';
+import { CircuitBreakerModule } from './circuit-breaker/circuit-breaker.module';
+
+import { EncryptionService } from './security/encryption.service';
+import { RedisService } from './redis/redis.service';
+import { DEFAULT_BULLMQ_OPTIONS } from '../config/bullmq.config';
 
 @Global()
 @Module({
@@ -25,6 +31,7 @@ import { MetricsModule } from './metrics/metrics.module';
     CloudinaryModule,
     NotificationsQueueModule,
     MetricsModule,
+    CircuitBreakerModule,
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
       inject: [RedisThrottlerStorage, ConfigService],
@@ -43,9 +50,11 @@ import { MetricsModule } from './metrics/metrics.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
+        ...DEFAULT_BULLMQ_OPTIONS,
         connection: {
-          host: configService.get<string>('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
+          host: configService.get<string>('redis.host') || configService.get<string>('REDIS_HOST', 'localhost'),
+          port: configService.get<number>('redis.port') || configService.get<number>('REDIS_PORT', 6379),
+          password: configService.get<string>('redis.password') || configService.get<string>('REDIS_PASSWORD') || undefined,
         },
       }),
     }),
@@ -66,11 +75,16 @@ import { MetricsModule } from './metrics/metrics.module';
     IdempotencyInterceptor,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: CustomThrottlerGuard,
     },
+    EncryptionService,
   ],
   exports: [
     IdempotencyInterceptor,
+    CircuitBreakerModule,
+    CloudinaryModule,
+    EncryptionService,
+    RedisModule,
   ],
 })
 export class InfraModule {}

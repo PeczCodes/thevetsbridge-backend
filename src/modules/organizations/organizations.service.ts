@@ -37,7 +37,9 @@ export class OrganizationsService {
         },
       });
 
-      this.logger.log(`Created organization ${organization.id} by user ${userId}`);
+      this.logger.log(
+        `Created organization ${organization.id} by user ${userId}`,
+      );
       return organization;
     });
   }

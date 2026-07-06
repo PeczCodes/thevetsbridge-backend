@@ -11,22 +11,54 @@ export class PaymentVerificationWorker extends WorkerHost {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly paymentService: PaymentService
+    private readonly paymentService: PaymentService,
   ) {
     super();
   }
 
-  async process(job: Job<{ reference: string; eventId: string; correlationId: string }>): Promise<any> {
-    const { reference, eventId, correlationId = 'UNKNOWN-CORRELATION-ID' } = job.data;
-    this.logger.log(`[Correlation ID: ${correlationId}] [Payment Worker] Starting verification for Reference: ${reference}`);
+  async process(
+    job: Job<{ reference: string; eventId: string; correlationId: string }>,
+  ): Promise<any> {
+    const {
+      reference,
+      eventId,
+      correlationId = 'UNKNOWN-CORRELATION-ID',
+    } = job.data;
+    const startTime = Date.now();
+    const metadata = {
+      queueName: job.queueName,
+      workerName: this.constructor.name,
+      jobId: job.id,
+      retryCount: job.attemptsMade,
+      correlationId,
+      reference,
+      eventId,
+    };
+
+    this.logger.log(
+      { ...metadata },
+      `Starting payment verification for Reference: ${reference}`,
+    );
 
     try {
-      const result = await this.paymentService.verifyAndFulfillPayment(reference, eventId, correlationId);
-      this.logger.log(`[Correlation ID: ${correlationId}] [Payment Worker] Payment processed successfully for reference: ${reference}`);
+      const result = await this.paymentService.verifyAndFulfillPayment(
+        reference,
+        eventId,
+        correlationId,
+      );
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        { ...metadata, duration },
+        `Payment processed successfully for reference: ${reference}`,
+      );
       return result;
     } catch (error: any) {
-      this.logger.error(`[Correlation ID: ${correlationId}] [Payment Worker] Failed processing reference ${reference}: ${error.message}`);
-      
+      const duration = Date.now() - startTime;
+      this.logger.error(
+        { ...metadata, duration, err: error },
+        `Failed processing reference ${reference}`,
+      );
+
       if (eventId) {
         try {
           await this.prisma.webhookEventLog.update({
@@ -37,7 +69,10 @@ export class PaymentVerificationWorker extends WorkerHost {
             },
           });
         } catch (dbErr: any) {
-          this.logger.error(`[Correlation ID: ${correlationId}] [Payment Worker] Failed to update WebhookEventLog with failure details: ${dbErr.message}`);
+          this.logger.error(
+            { ...metadata, duration, err: dbErr },
+            `Failed to update WebhookEventLog with failure details`,
+          );
         }
       }
 

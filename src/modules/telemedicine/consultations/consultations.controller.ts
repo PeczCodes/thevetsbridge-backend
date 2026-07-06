@@ -1,15 +1,33 @@
-import { Controller, Post, Body, Get, UseGuards, Param, Patch, Query, Headers, UseInterceptors } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  UseGuards,
+  Param,
+  Patch,
+  Query,
+  Headers,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ConsultationsService } from './consultations.service';
 import { ScheduleConsultationDto } from './dto/schedule-consultation.dto';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
 import { RequireProfile } from '../../identity/auth/decorators/require-profile.decorator';
 import { RequireProfileGuard } from '../../identity/auth/guards/require-profile.guard';
-import { ConsultationStatus } from '@prisma/client';
+import { AdminGuard } from '../../identity/auth/guards/admin.guard';
 import { Idempotent } from '../../../../common/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../../common/interceptors/idempotency.interceptor';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 import { Public } from '../../identity/auth/decorators/public.decorator';
 import { GetConsultationsDto } from './dto/get-consultations.dto';
+import {
+  SubmitSummaryDto,
+  SubmitReviewDto,
+  SubmitFeedbackDto,
+  OpenDisputeDto,
+  ResolveDisputeDto,
+} from './dto/consultation-lifecycle.dto';
 
 @Controller('consultations')
 export class ConsultationsController {
@@ -46,21 +64,6 @@ export class ConsultationsController {
     return this.consultationsService.getVetConsultations(
       user.vetProfile.id,
       pagination,
-    );
-  }
-
-  @Patch(':id/status')
-  @RequireProfile('VET')
-  @UseGuards(RequireProfileGuard)
-  async updateStatus(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-    @Body('status') status: ConsultationStatus,
-  ) {
-    return this.consultationsService.updateStatus(
-      id,
-      status,
-      user.vetProfile.id,
     );
   }
 
@@ -103,5 +106,71 @@ export class ConsultationsController {
     @Body() body: any,
   ) {
     return this.consultationsService.handleLiveKitWebhook(body, signature);
+  }
+
+  // Lifecycle APIs
+  @Post(':id/waiting-room')
+  async joinWaitingRoom(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.consultationsService.joinWaitingRoom(user.id, id);
+  }
+
+  @Post(':id/presence')
+  async registerPresence(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body('ip') ip?: string,
+    @Body('ua') ua?: string,
+  ) {
+    return this.consultationsService.registerPresence(user.id, id, { ip, ua });
+  }
+
+  @Post(':id/heartbeat')
+  async heartbeat(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.consultationsService.heartbeat(user.id, id);
+  }
+
+  @Post(':id/disconnect')
+  async registerDisconnect(@Param('id') id: string, @CurrentUser() user: any) {
+    await this.consultationsService.registerDisconnect(user.id, id);
+    return { success: true };
+  }
+
+  @Post(':id/summary')
+  @RequireProfile('VET')
+  @UseGuards(RequireProfileGuard)
+  async submitSummary(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: SubmitSummaryDto,
+  ) {
+    return this.consultationsService.submitSummary(user.id, id, dto);
+  }
+
+  @Post(':id/dispute')
+  async openDispute(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: OpenDisputeDto,
+  ) {
+    return this.consultationsService.openDispute(user.id, id, dto);
+  }
+
+  @Post('disputes/:disputeId/resolve')
+  @UseGuards(AdminGuard)
+  async resolveDispute(
+    @Param('disputeId') disputeId: string,
+    @CurrentUser() user: any,
+    @Body() dto: ResolveDisputeDto,
+  ) {
+    return this.consultationsService.resolveDispute(user.id, disputeId, dto);
+  }
+
+  @Post(':id/review')
+  async submitReview(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto: SubmitReviewDto,
+  ) {
+    return this.consultationsService.submitReview(user.id, id, dto);
   }
 }

@@ -1,20 +1,27 @@
-import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { CreateAnimalDto } from './dto/create-animal.dto';
 import { UpdateAnimalDto } from './dto/update-animal.dto';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { generateSlug, uniqueSlug } from '../../../common/utils/slug';
+import { getOrCreateMediaFromUrl } from '../../../common/utils/media';
+import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 
 export function formatExactAge(birthDate: Date): string {
   const now = new Date();
   let years = now.getFullYear() - birthDate.getFullYear();
   let months = now.getMonth() - birthDate.getMonth();
-  
+
   if (months < 0) {
     years--;
     months += 12;
   }
-  
+
   const dayDiff = now.getDate() - birthDate.getDate();
   if (dayDiff < 0) {
     months--;
@@ -63,6 +70,7 @@ export function mapAnimal(animal: any) {
 
   return {
     ...animal,
+    photoUrl: animal.photoMedia?.storageUrl || null,
     slug: animal.slug || animal.id,
     ageDisplay,
   };
@@ -73,27 +81,46 @@ export class AnimalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly organizationsService: OrganizationsService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async createAnimal(userId: string, dto: CreateAnimalDto) {
     if (dto.organizationId) {
       // Validate user is member of organization
-      const isMember = await this.organizationsService.isMember(userId, dto.organizationId);
+      const isMember = await this.organizationsService.isMember(
+        userId,
+        dto.organizationId,
+      );
 
       if (!isMember) {
-        throw new ForbiddenException('User is not a member of the specified organization');
+        throw new ForbiddenException(
+          'User is not a member of the specified organization',
+        );
       }
     }
 
-    if (dto.birthDate && (dto.estimatedAgeMonths !== undefined && dto.estimatedAgeMonths !== null)) {
-      throw new BadRequestException('An animal cannot have both an exact birth date and an estimated age simultaneously');
+    if (
+      dto.birthDate &&
+      dto.estimatedAgeMonths !== undefined &&
+      dto.estimatedAgeMonths !== null
+    ) {
+      throw new BadRequestException(
+        'An animal cannot have both an exact birth date and an estimated age simultaneously',
+      );
     }
 
     if (dto.ageType === 'EXACT' && !dto.birthDate) {
-      throw new BadRequestException('Birth date is required when ageType is EXACT');
+      throw new BadRequestException(
+        'Birth date is required when ageType is EXACT',
+      );
     }
-    if (dto.ageType === 'ESTIMATED' && (dto.estimatedAgeMonths === undefined || dto.estimatedAgeMonths === null)) {
-      throw new BadRequestException('Estimated age is required when ageType is ESTIMATED');
+    if (
+      dto.ageType === 'ESTIMATED' &&
+      (dto.estimatedAgeMonths === undefined || dto.estimatedAgeMonths === null)
+    ) {
+      throw new BadRequestException(
+        'Estimated age is required when ageType is ESTIMATED',
+      );
     }
 
     const baseSlug = generateSlug(dto.name || 'animal');
@@ -104,46 +131,85 @@ export class AnimalsService {
       return !!exists;
     });
 
-    return this.prisma.$transaction(async (tx) => {
-      const animal = await tx.animal.create({
-        data: {
-          name: dto.name,
-          slug,
-          species: dto.species,
-          breed: dto.breed,
-          type: dto.type,
-          photoUrl: dto.photoUrl,
-          sex: dto.sex,
-          birthDate: dto.ageType === 'EXACT' && dto.birthDate ? new Date(dto.birthDate) : null,
-          estimatedAgeMonths: dto.ageType === 'ESTIMATED' && dto.estimatedAgeMonths !== undefined && dto.estimatedAgeMonths !== null ? dto.estimatedAgeMonths : null,
-          ageType: dto.ageType || null,
-          healthStatus: dto.healthStatus,
-          weight: dto.weight,
-          medicalNotes: dto.medicalNotes,
-          ...(dto.organizationId && { organizationId: dto.organizationId }),
-          ownerships: {
-            create: {
-              userId: userId,
-              status: 'ACTIVE',
+    let resolvedMedia: any = null;
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const baseAnimal = await tx.animal.create({
+          data: {
+            name: dto.name,
+            slug,
+            species: dto.species,
+            breed: dto.breed,
+            type: dto.type,
+            sex: dto.sex,
+            birthDate:
+              dto.ageType === 'EXACT' && dto.birthDate
+                ? new Date(dto.birthDate)
+                : null,
+            estimatedAgeMonths:
+              dto.ageType === 'ESTIMATED' &&
+              dto.estimatedAgeMonths !== undefined &&
+              dto.estimatedAgeMonths !== null
+                ? dto.estimatedAgeMonths
+                : null,
+            ageType: dto.ageType || null,
+            healthStatus: dto.healthStatus,
+            weight: dto.weight,
+            medicalNotes: dto.medicalNotes,
+            ...(dto.organizationId && { organizationId: dto.organizationId }),
+            ownerships: {
+              create: {
+                userId: userId,
+                status: 'ACTIVE',
+              },
             },
           },
-        },
-      });
+        });
 
-      await tx.outboxEvent.create({
-        data: {
-          type: 'ANIMAL_REGISTERED',
-          payload: {
-            animalId: animal.id,
-            ownerId: userId,
-            organizationId: dto.organizationId,
-            type: dto.type,
+        let photoMediaId: string | null = null;
+        if (dto.photoUrl) {
+          resolvedMedia = await getOrCreateMediaFromUrl(
+            tx,
+            dto.photoUrl,
+            'ANIMAL',
+            baseAnimal.id,
+            'ANIMAL_PHOTO',
+            userId,
+          );
+          photoMediaId = resolvedMedia.mediaId;
+        }
+
+        const animal = await tx.animal.update({
+          where: { id: baseAnimal.id },
+          data: {
+            photoMediaId,
           },
-        },
-      });
+          include: {
+            photoMedia: true,
+          },
+        });
 
-      return mapAnimal({ ...animal, slug: animal.slug || animal.id });
-    });
+        await tx.outboxEvent.create({
+          data: {
+            type: 'ANIMAL_REGISTERED',
+            payload: {
+              animalId: animal.id,
+              ownerId: userId,
+              organizationId: dto.organizationId,
+              type: dto.type,
+            },
+          },
+        });
+
+        return mapAnimal({ ...animal, slug: animal.slug || animal.id });
+      });
+    } catch (error) {
+      if (resolvedMedia?.isNew && resolvedMedia?.publicId) {
+        await this.cloudinaryService.deleteAsset(resolvedMedia.publicId);
+      }
+      throw error;
+    }
   }
 
   async getUserAnimals(userId: string) {
@@ -158,6 +224,7 @@ export class AnimalsService {
       },
       include: {
         organization: true,
+        photoMedia: true,
       },
     });
     return animals.map((a) => mapAnimal(a));
@@ -166,13 +233,11 @@ export class AnimalsService {
   async getAnimalById(currentUser: any, idOrSlug: string) {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: idOrSlug },
-          { slug: idOrSlug },
-        ],
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
       include: {
         organization: true,
+        photoMedia: true,
         consultations: true,
         prescriptions: true,
         appointments: true,
@@ -199,7 +264,9 @@ export class AnimalsService {
     const isVetOrAdmin = currentUser.isAdmin || !!currentUser.vetProfile;
 
     if (!isOwner && !isVetOrAdmin) {
-      throw new ForbiddenException('You do not have permission to view this animal profile');
+      throw new ForbiddenException(
+        'You do not have permission to view this animal profile',
+      );
     }
 
     return mapAnimal(animal);
@@ -208,10 +275,7 @@ export class AnimalsService {
   async deleteAnimal(userId: string, idOrSlug: string) {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: idOrSlug },
-          { slug: idOrSlug },
-        ],
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
     });
 
@@ -230,6 +294,9 @@ export class AnimalsService {
       });
       const deletedAnimal = await tx.animal.delete({
         where: { id: animal.id },
+        include: {
+          photoMedia: true,
+        },
       });
       return mapAnimal(deletedAnimal);
     });
@@ -238,10 +305,7 @@ export class AnimalsService {
   async updateAnimal(currentUser: any, idOrSlug: string, dto: UpdateAnimalDto) {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: idOrSlug },
-          { slug: idOrSlug },
-        ],
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
     });
 
@@ -254,8 +318,14 @@ export class AnimalsService {
       throw new ForbiddenException('You do not own this animal');
     }
 
-    if (dto.birthDate && (dto.estimatedAgeMonths !== undefined && dto.estimatedAgeMonths !== null)) {
-      throw new BadRequestException('An animal cannot have both an exact birth date and an estimated age simultaneously');
+    if (
+      dto.birthDate &&
+      dto.estimatedAgeMonths !== undefined &&
+      dto.estimatedAgeMonths !== null
+    ) {
+      throw new BadRequestException(
+        'An animal cannot have both an exact birth date and an estimated age simultaneously',
+      );
     }
 
     let slug = animal.slug;
@@ -277,13 +347,20 @@ export class AnimalsService {
       ageTypeUpdate = dto.ageType;
       if (dto.ageType === 'EXACT') {
         if (!dto.birthDate) {
-          throw new BadRequestException('Birth date is required when ageType is EXACT');
+          throw new BadRequestException(
+            'Birth date is required when ageType is EXACT',
+          );
         }
         birthDateUpdate = new Date(dto.birthDate);
         estimatedAgeMonthsUpdate = null;
       } else if (dto.ageType === 'ESTIMATED') {
-        if (dto.estimatedAgeMonths === undefined || dto.estimatedAgeMonths === null) {
-          throw new BadRequestException('Estimated age is required when ageType is ESTIMATED');
+        if (
+          dto.estimatedAgeMonths === undefined ||
+          dto.estimatedAgeMonths === null
+        ) {
+          throw new BadRequestException(
+            'Estimated age is required when ageType is ESTIMATED',
+          );
         }
         estimatedAgeMonthsUpdate = dto.estimatedAgeMonths;
         birthDateUpdate = null;
@@ -296,42 +373,99 @@ export class AnimalsService {
         birthDateUpdate = new Date(dto.birthDate);
         estimatedAgeMonthsUpdate = null;
         ageTypeUpdate = 'EXACT';
-      } else if (dto.estimatedAgeMonths !== undefined && dto.estimatedAgeMonths !== null) {
+      } else if (
+        dto.estimatedAgeMonths !== undefined &&
+        dto.estimatedAgeMonths !== null
+      ) {
         estimatedAgeMonthsUpdate = dto.estimatedAgeMonths;
         birthDateUpdate = null;
         ageTypeUpdate = 'ESTIMATED';
       }
     }
 
-    const updatedAnimal = await this.prisma.animal.update({
-      where: { id: animal.id },
-      data: {
-        name: dto.name,
-        slug,
-        species: dto.species,
-        breed: dto.breed,
-        type: dto.type,
-        photoUrl: dto.photoUrl,
-        sex: dto.sex,
-        birthDate: birthDateUpdate,
-        estimatedAgeMonths: estimatedAgeMonthsUpdate,
-        ageType: ageTypeUpdate,
-        healthStatus: dto.healthStatus,
-        weight: dto.weight,
-        medicalNotes: dto.medicalNotes,
-      },
-    });
+    let resolvedMedia: any = null;
 
-    return mapAnimal(updatedAnimal);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        let photoMediaIdUpdate: any = undefined;
+        if (dto.photoUrl !== undefined) {
+          if (!dto.photoUrl || dto.photoUrl === '') {
+            if (animal.photoMediaId) {
+              const oldMedia = await tx.media.findUnique({
+                where: { id: animal.photoMediaId },
+              });
+              if (oldMedia && oldMedia.status !== 'DELETED') {
+                await tx.media.update({
+                  where: { id: animal.photoMediaId },
+                  data: {
+                    status: 'DELETED',
+                    deletedAt: new Date(),
+                  },
+                });
+
+                await tx.outboxEvent.create({
+                  data: {
+                    type: 'MEDIA_DELETED',
+                    payload: {
+                      mediaId: oldMedia.id,
+                      publicId: oldMedia.publicId,
+                    },
+                  },
+                });
+              }
+            }
+            photoMediaIdUpdate = null;
+          } else {
+            resolvedMedia = await getOrCreateMediaFromUrl(
+              tx,
+              dto.photoUrl,
+              'ANIMAL',
+              animal.id,
+              'ANIMAL_PHOTO',
+              currentUser.id,
+            );
+            photoMediaIdUpdate = resolvedMedia.mediaId;
+          }
+        }
+
+        const updatedAnimal = await tx.animal.update({
+          where: { id: animal.id },
+          data: {
+            name: dto.name,
+            slug,
+            species: dto.species,
+            breed: dto.breed,
+            type: dto.type,
+            ...(photoMediaIdUpdate !== undefined && {
+              photoMediaId: photoMediaIdUpdate,
+            }),
+            sex: dto.sex,
+            birthDate: birthDateUpdate,
+            estimatedAgeMonths: estimatedAgeMonthsUpdate,
+            ageType: ageTypeUpdate,
+            healthStatus: dto.healthStatus,
+            weight: dto.weight,
+            medicalNotes: dto.medicalNotes,
+          },
+          include: {
+            photoMedia: true,
+          },
+        });
+
+        return mapAnimal(updatedAnimal);
+      });
+    } catch (error) {
+      if (resolvedMedia?.isNew && resolvedMedia?.publicId) {
+        await this.cloudinaryService.deleteAsset(resolvedMedia.publicId);
+      }
+      throw error;
+    }
   }
 
   async isOwner(userId: string, idOrSlug: string): Promise<boolean> {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: idOrSlug },
-          { slug: idOrSlug },
-        ],
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
       include: {
         ownerships: {
@@ -348,10 +482,7 @@ export class AnimalsService {
   async addHealthLog(currentUser: any, animalIdOrSlug: string, dto: any) {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: animalIdOrSlug },
-          { slug: animalIdOrSlug },
-        ],
+        OR: [{ id: animalIdOrSlug }, { slug: animalIdOrSlug }],
       },
     });
 
@@ -363,7 +494,9 @@ export class AnimalsService {
     const isVetOrAdmin = currentUser.isAdmin || !!currentUser.vetProfile;
 
     if (!isOwner && !isVetOrAdmin) {
-      throw new ForbiddenException('You do not have permission to manage this animal\'s health logs');
+      throw new ForbiddenException(
+        "You do not have permission to manage this animal's health logs",
+      );
     }
 
     return this.prisma.animalHealthLog.create({
@@ -381,10 +514,7 @@ export class AnimalsService {
   async getHealthLogs(currentUser: any, animalIdOrSlug: string) {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: animalIdOrSlug },
-          { slug: animalIdOrSlug },
-        ],
+        OR: [{ id: animalIdOrSlug }, { slug: animalIdOrSlug }],
       },
     });
 
@@ -396,7 +526,9 @@ export class AnimalsService {
     const isVetOrAdmin = currentUser.isAdmin || !!currentUser.vetProfile;
 
     if (!isOwner && !isVetOrAdmin) {
-      throw new ForbiddenException('You do not have permission to view this animal\'s health logs');
+      throw new ForbiddenException(
+        "You do not have permission to view this animal's health logs",
+      );
     }
 
     return this.prisma.animalHealthLog.findMany({
@@ -405,13 +537,14 @@ export class AnimalsService {
     });
   }
 
-  async deleteHealthLog(currentUser: any, animalIdOrSlug: string, logId: string) {
+  async deleteHealthLog(
+    currentUser: any,
+    animalIdOrSlug: string,
+    logId: string,
+  ) {
     const animal = await this.prisma.animal.findFirst({
       where: {
-        OR: [
-          { id: animalIdOrSlug },
-          { slug: animalIdOrSlug },
-        ],
+        OR: [{ id: animalIdOrSlug }, { slug: animalIdOrSlug }],
       },
     });
 
@@ -423,7 +556,9 @@ export class AnimalsService {
     const isVetOrAdmin = currentUser.isAdmin || !!currentUser.vetProfile;
 
     if (!isOwner && !isVetOrAdmin) {
-      throw new ForbiddenException('You do not have permission to manage this animal\'s health logs');
+      throw new ForbiddenException(
+        "You do not have permission to manage this animal's health logs",
+      );
     }
 
     const log = await this.prisma.animalHealthLog.findFirst({

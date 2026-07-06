@@ -8,7 +8,9 @@ export class InitiatePaymentDto {
     description: 'Purpose of payment (ORDER or APPOINTMENT)',
     example: PaymentPurpose.ORDER,
   })
-  @IsEnum(PaymentPurpose, { message: 'Invalid payment purpose. Must be ORDER or APPOINTMENT' })
+  @IsEnum(PaymentPurpose, {
+    message: 'Invalid payment purpose. Must be ORDER or APPOINTMENT',
+  })
   purpose: PaymentPurpose;
 
   @ApiProperty({
@@ -20,7 +22,8 @@ export class InitiatePaymentDto {
   targetId: string;
 
   @ApiProperty({
-    description: 'The absolute frontend redirect callback URL returned by the payment gateway post-transaction',
+    description:
+      'The absolute frontend redirect callback URL returned by the payment gateway post-transaction',
     example: 'http://localhost:3000/payments/callback',
   })
   @IsUrl({ require_tld: false }, { message: 'Invalid redirect callback URL' })

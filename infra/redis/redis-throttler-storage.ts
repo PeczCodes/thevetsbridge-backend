@@ -1,16 +1,14 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface';
-import Redis from 'ioredis';
+import { RedisService } from './redis.service';
 
 @Injectable()
 export class RedisThrottlerStorage implements ThrottlerStorage {
   private readonly logger = new Logger(RedisThrottlerStorage.name);
 
-  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
+  constructor(private readonly redisService: RedisService) {}
 
-  
-  
   async increment(
     key: string,
     ttl: number, // in milliseconds
@@ -20,9 +18,17 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   ): Promise<ThrottlerStorageRecord> {
     const ttlSeconds = Math.ceil(ttl / 1000);
     const blockSeconds = Math.ceil(blockDuration / 1000);
-    
-    
-    
+
+    if (!this.redisService.isAvailable()) {
+      this.logger.warn('Redis storage is unavailable. Throttler failing open.');
+      return {
+        totalHits: 1,
+        timeToExpire: ttlSeconds,
+        isBlocked: false,
+        timeToBlockExpire: 0,
+      };
+    }
+
     const countKey = `throttler:${key}:${throttlerName}:count`;
     const blockKey = `throttler:${key}:${throttlerName}:blocked`;
 
@@ -51,7 +57,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     `;
 
     try {
-      const result = (await this.redis.eval(
+      const result = (await this.redisService.getClient().eval(
         luaScript,
         2,
         countKey,

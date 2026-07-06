@@ -463,21 +463,28 @@ export function getEmailTemplate(templateName: string, context: any): { subject:
 
     case 'USER_PASSWORD_RESET':
       subject = "VetsBridge Account Password Reset 🔐";
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const resetLink = `${frontendUrl}/auth/reset-password?token=${context.token}`;
       content = `
-        <h2>Password Reset Notification</h2>
+        <h2>Password Reset Request</h2>
         <p>Hello ${context.name},</p>
-        <p>Your account password has been reset by an administrator. Here is your temporary credentials:</p>
+        <p>A password reset request was received for your VetsBridge account. Please click the button below to set a new password:</p>
         
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 20px 0; text-align: center;">
-          <p style="margin: 0; font-size: 13px; text-transform: uppercase; color: #64748b; font-weight: bold; letter-spacing: 0.5px;">Temporary Password</p>
-          <p style="margin: 5px 0 0 0; font-size: 18px; color: #1e293b; font-weight: 600; font-family: monospace;">${context.newPassword}</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${resetLink}" class="btn" style="background-color: #ef4444; color: #ffffff !important;">Reset Your Password</a>
         </div>
+
+        <p style="word-break: break-all; font-size: 13px; color: #64748b; margin-top: 20px;">
+          Plaintext URL link:<br>
+          <a href="${resetLink}" style="color: #4A90E2;">${resetLink}</a>
+        </p>
         
-        <p>Please log in and update your password immediately inside your account settings for security purposes.</p>
-        
-        <div style="text-align: center;">
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/login" class="btn">Log In and Change Password</a>
-        </div>
+        <p style="font-size: 14px; color: #475569; margin-top: 25px;">
+          This password reset link expires in 30 minutes.
+        </p>
+        <p style="font-size: 14px; color: #475569; font-style: italic;">
+          If you didn't request this password reset, you can safely ignore this email.
+        </p>
       `;
       break;
 

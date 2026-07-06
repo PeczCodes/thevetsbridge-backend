@@ -20,10 +20,7 @@ export class UserController {
   }
 
   @Post('security/password')
-  async setPassword(
-    @CurrentUser() user: any,
-    @Body() dto: SetPasswordDto,
-  ) {
+  async setPassword(@CurrentUser() user: any, @Body() dto: SetPasswordDto) {
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
     }

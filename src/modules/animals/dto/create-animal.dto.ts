@@ -1,5 +1,17 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, IsNumber, IsInt } from 'class-validator';
-import { AnimalType, AnimalSex, HealthStatus, AnimalAgeType } from '@prisma/client';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsInt,
+} from 'class-validator';
+import {
+  AnimalType,
+  AnimalSex,
+  HealthStatus,
+  AnimalAgeType,
+} from '@prisma/client';
 
 export class CreateAnimalDto {
   @IsString()

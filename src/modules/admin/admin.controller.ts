@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminGuard } from '../identity/auth/guards/admin.guard';
 
@@ -36,8 +45,10 @@ export class AdminController {
   async getUsers(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
   ) {
-    return this.adminService.getUsers(search, status);
+    return this.adminService.getUsers(search, status, page, limit);
   }
 
   @Post('users/:userId/suspend')
@@ -46,11 +57,8 @@ export class AdminController {
   }
 
   @Post('users/:userId/reset-password')
-  async resetPassword(
-    @Param('userId') userId: string,
-    @Body('password') password?: string,
-  ) {
-    return this.adminService.resetPassword(userId, password);
+  async resetPassword(@Param('userId') userId: string) {
+    return this.adminService.resetPassword(userId);
   }
 
   @Get('vets')
@@ -65,7 +73,12 @@ export class AdminController {
     @Body('verified') verified: boolean,
     @Body('rejectionReason') rejectionReason?: string,
   ) {
-    return this.adminService.verifyVet(vetId, status, verified, rejectionReason);
+    return this.adminService.verifyVet(
+      vetId,
+      status,
+      verified,
+      rejectionReason,
+    );
   }
 
   @Get('vendors')

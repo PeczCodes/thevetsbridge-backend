@@ -6,6 +6,7 @@ import { PrescriptionsController } from './prescriptions/prescriptions.controlle
 import { VetsController } from './vets/vets.controller';
 import { VetAvailabilityController } from './vets/vet-availability.controller';
 import { PrismaModule } from '../../../infra/prisma/prisma.module';
+import { IdentityModule } from '../identity/identity.module';
 import { AnimalsModule } from '../animals/animals.module';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -15,11 +16,15 @@ import { DirectMessagingController } from './direct-messaging/direct-messaging.c
 import { VetsService } from './vets/vets.service';
 import { BullModule } from '@nestjs/bullmq';
 import { UnpaidBookingCleanupProcessor } from './consultations/services/unpaid-booking-cleanup.processor';
+import { ConsultationLifecycleWorker } from './consultations/services/consultation-lifecycle.worker';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
     PrismaModule,
     AnimalsModule,
+    IdentityModule,
+    PaymentsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -27,9 +32,10 @@ import { UnpaidBookingCleanupProcessor } from './consultations/services/unpaid-b
         secret: configService.get<string>('JWT_ACCESS_SECRET'),
       }),
     }),
-    BullModule.registerQueue({
-      name: 'unpaid-booking-cleanup',
-    }),
+    BullModule.registerQueue(
+      { name: 'unpaid-booking-cleanup' },
+      { name: 'consultation-lifecycle' },
+    ),
   ],
   controllers: [
     ConsultationsController,
@@ -45,6 +51,7 @@ import { UnpaidBookingCleanupProcessor } from './consultations/services/unpaid-b
     DirectMessagingService,
     VetsService,
     UnpaidBookingCleanupProcessor,
+    ConsultationLifecycleWorker,
   ],
   exports: [ConsultationsService, PrescriptionsService, DirectMessagingService],
 })

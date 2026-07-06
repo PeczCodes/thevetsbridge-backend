@@ -19,6 +19,8 @@ export class SetPasswordDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(8, { message: 'Confirmation password must be at least 8 characters long' })
+  @MinLength(8, {
+    message: 'Confirmation password must be at least 8 characters long',
+  })
   confirmPassword!: string;
 }

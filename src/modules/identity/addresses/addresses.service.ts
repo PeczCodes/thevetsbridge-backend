@@ -10,10 +10,7 @@ export class AddressesService {
   async findAll(userId: string) {
     return this.prisma.address.findMany({
       where: { userId, deletedAt: null },
-      orderBy: [
-        { isDefault: 'desc' },
-        { createdAt: 'desc' },
-      ],
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
@@ -70,7 +67,9 @@ export class AddressesService {
       });
 
       if (!existing) {
-        throw new NotFoundException('Address not found or does not belong to this user');
+        throw new NotFoundException(
+          'Address not found or does not belong to this user',
+        );
       }
 
       if (dto.isDefault === true) {
@@ -104,7 +103,9 @@ export class AddressesService {
       });
 
       if (!existing) {
-        throw new NotFoundException('Address not found or does not belong to this user');
+        throw new NotFoundException(
+          'Address not found or does not belong to this user',
+        );
       }
 
       // Soft delete the address
@@ -142,7 +143,9 @@ export class AddressesService {
       });
 
       if (!existing) {
-        throw new NotFoundException('Address not found or does not belong to this user');
+        throw new NotFoundException(
+          'Address not found or does not belong to this user',
+        );
       }
 
       // Set all other active addresses to isDefault: false

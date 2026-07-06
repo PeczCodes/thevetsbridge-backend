@@ -45,7 +45,10 @@ describe('PaymentVerificationWorker', () => {
     } as Job;
 
     it('should verify and fulfill payment successfully', async () => {
-      paymentServiceMock.verifyAndFulfillPayment.mockResolvedValue({ success: true, reference: 'VETS-ORD-123' });
+      paymentServiceMock.verifyAndFulfillPayment.mockResolvedValue({
+        success: true,
+        reference: 'VETS-ORD-123',
+      });
 
       const result = await worker.process(jobMock);
 
@@ -60,7 +63,9 @@ describe('PaymentVerificationWorker', () => {
 
     it('should update webhook log as FAILED and rethrow when paymentService fails', async () => {
       const errorMsg = 'Verification failed';
-      paymentServiceMock.verifyAndFulfillPayment.mockRejectedValue(new Error(errorMsg));
+      paymentServiceMock.verifyAndFulfillPayment.mockRejectedValue(
+        new Error(errorMsg),
+      );
 
       await expect(worker.process(jobMock)).rejects.toThrow(errorMsg);
 
@@ -80,8 +85,12 @@ describe('PaymentVerificationWorker', () => {
 
     it('should still rethrow error even if updating webhook log fails', async () => {
       const errorMsg = 'Verification failed';
-      paymentServiceMock.verifyAndFulfillPayment.mockRejectedValue(new Error(errorMsg));
-      prismaMock.webhookEventLog.update.mockRejectedValue(new Error('DB connection lost'));
+      paymentServiceMock.verifyAndFulfillPayment.mockRejectedValue(
+        new Error(errorMsg),
+      );
+      prismaMock.webhookEventLog.update.mockRejectedValue(
+        new Error('DB connection lost'),
+      );
 
       await expect(worker.process(jobMock)).rejects.toThrow(errorMsg);
     });

@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Query, UseGuards, Patch, Body } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+  Patch,
+  Body,
+} from '@nestjs/common';
 import { Public } from '../../identity/auth/decorators/public.decorator';
 import { RequireProfile } from '../../identity/auth/decorators/require-profile.decorator';
 import { RequireProfileGuard } from '../../identity/auth/guards/require-profile.guard';
@@ -8,7 +16,7 @@ import { VetsService } from './vets.service';
 @Controller('vets')
 export class VetsController {
   constructor(private readonly vetsService: VetsService) {}
-  
+
   @Get('stats')
   @RequireProfile('VET')
   @UseGuards(RequireProfileGuard)
@@ -20,12 +28,12 @@ export class VetsController {
   async getProfile(@CurrentUser() user: any) {
     return this.vetsService.getProfile(user);
   }
-  
+
   @Patch('profile')
   async updateProfile(@CurrentUser() user: any, @Body() dto: any) {
     return this.vetsService.updateVetProfile(user.vetProfile.id, user.id, dto);
   }
-  
+
   @Get()
   @Public()
   async listVets(
@@ -38,7 +46,14 @@ export class VetsController {
   ) {
     // If the requesting user is a vet, exclude their own profile from the directory
     const excludeVetProfileId: string | undefined = user?.vetProfile?.id;
-    return this.vetsService.listVets(specialization, minRating, maxFee, availableOnly, verifiedOnly, excludeVetProfileId)
+    return this.vetsService.listVets(
+      specialization,
+      minRating,
+      maxFee,
+      availableOnly,
+      verifiedOnly,
+      excludeVetProfileId,
+    );
   }
 
   @Get(':idOrSlug')

@@ -11,11 +11,33 @@ import { JwtService } from '@nestjs/jwt';
 import { Logger } from '@nestjs/common';
 import { ConsultationsService } from '../consultations/consultations.service';
 import { DirectMessagingService } from '../direct-messaging/direct-messaging.service';
+import { UsersService } from '../../identity/users/users.service';
+
+const getOrigins = () => {
+  const envOrigins = process.env.CORS_ORIGINS;
+  if (envOrigins) {
+    return envOrigins.split(',').map((o) => o.trim());
+  }
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (frontendUrl) {
+    return [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+      frontendUrl,
+    ];
+  }
+  return [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
+  ];
+};
 
 @WebSocketGateway({
   namespace: 'telemedicine',
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'https://balcony-crabgrass-campus.ngrok-free.dev'],
+    origin: getOrigins(),
     credentials: true,
   },
 })
@@ -29,6 +51,7 @@ export class TelemedicineGateway implements OnGatewayConnection {
     private readonly jwtService: JwtService,
     private readonly consultationsService: ConsultationsService,
     private readonly directMessagingService: DirectMessagingService,
+    private readonly usersService: UsersService,
   ) {}
 
   async handleConnection(socket: Socket) {
@@ -45,33 +68,52 @@ export class TelemedicineGateway implements OnGatewayConnection {
 
       // Fallback: extract accessToken from cookie if not explicitly provided
       if (!token && socket.handshake.headers.cookie) {
-        const cookieMap = socket.handshake.headers.cookie.split(';').reduce((acc: any, cookie: string) => {
-          const [key, value] = cookie.split('=').map((c) => c.trim());
-          if (key && value) acc[key] = value;
-          return acc;
-        }, {});
+        const cookieMap = socket.handshake.headers.cookie
+          .split(';')
+          .reduce((acc: any, cookie: string) => {
+            const [key, value] = cookie.split('=').map((c) => c.trim());
+            if (key && value) acc[key] = value;
+            return acc;
+          }, {});
         token = cookieMap['accessToken'];
       }
 
       if (!token) {
-        this.logger.warn(`Connection rejected: missing token on socket ${socket.id}`);
+        this.logger.warn(
+          `Connection rejected: missing token on socket ${socket.id}`,
+        );
         socket.disconnect(true);
         return;
       }
 
       // Verify JWT
       const decoded = this.jwtService.verify(token);
-      
+      const userId = decoded.sub || decoded.id;
+
+      // Database check to verify user existence and active status
+      const user = await this.usersService.findById(userId);
+      if (!user || !user.isActive) {
+        this.logger.warn(
+          `Connection rejected: User ${userId} is suspended or not found`,
+        );
+        socket.disconnect(true);
+        return;
+      }
+
       // Store user payload on the socket instance
       socket.data.user = {
-        id: decoded.sub || decoded.id,
+        id: userId,
         email: decoded.email,
-        vetProfileId: decoded.vetProfile?.id,
+        vetProfileId: decoded.vetProfile?.id || user.vetProfile?.id,
       };
 
-      this.logger.log(`Client authenticated: ${socket.id} (User: ${socket.data.user.id})`);
+      this.logger.log(
+        `Client authenticated: ${socket.id} (User: ${socket.data.user.id})`,
+      );
     } catch (error) {
-      this.logger.warn(`Connection rejected: invalid token on socket ${socket.id} - ${error.message}`);
+      this.logger.warn(
+        `Connection rejected: invalid token on socket ${socket.id} - ${error.message}`,
+      );
       socket.disconnect(true);
     }
   }
@@ -86,7 +128,10 @@ export class TelemedicineGateway implements OnGatewayConnection {
 
     try {
       // Validate that the user is indeed a participant of the consultation
-      const isParticipant = await this.consultationsService.isParticipant(user.id, consultationId);
+      const isParticipant = await this.consultationsService.isParticipant(
+        user.id,
+        consultationId,
+      );
       if (!isParticipant) {
         socket.emit('error', 'Not authorized to join this consultation room');
         return;
@@ -119,9 +164,14 @@ export class TelemedicineGateway implements OnGatewayConnection {
 
       const roomName = `consultation:${payload.consultationId}`;
       this.server.to(roomName).emit('consultation_message', message);
-      this.logger.log(`Consultation message sent by ${user.id} in room ${roomName}`);
+      this.logger.log(
+        `Consultation message sent by ${user.id} in room ${roomName}`,
+      );
     } catch (err) {
-      socket.emit('error', err.message || 'Failed to send consultation message');
+      socket.emit(
+        'error',
+        err.message || 'Failed to send consultation message',
+      );
     }
   }
 
@@ -134,9 +184,15 @@ export class TelemedicineGateway implements OnGatewayConnection {
     if (!user) return;
 
     try {
-      const isParticipant = await this.directMessagingService.isParticipant(user.id, channelId);
+      const isParticipant = await this.directMessagingService.isParticipant(
+        user.id,
+        channelId,
+      );
       if (!isParticipant) {
-        socket.emit('error', 'Not authorized to join this direct messaging channel');
+        socket.emit(
+          'error',
+          'Not authorized to join this direct messaging channel',
+        );
         return;
       }
 

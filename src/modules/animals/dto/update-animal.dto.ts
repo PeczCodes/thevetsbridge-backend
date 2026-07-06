@@ -1,5 +1,10 @@
 import { IsEnum, IsOptional, IsString, IsNumber, IsInt } from 'class-validator';
-import { AnimalType, AnimalSex, HealthStatus, AnimalAgeType } from '@prisma/client';
+import {
+  AnimalType,
+  AnimalSex,
+  HealthStatus,
+  AnimalAgeType,
+} from '@prisma/client';
 
 export class UpdateAnimalDto {
   @IsString()

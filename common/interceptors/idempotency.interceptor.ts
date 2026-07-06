@@ -5,20 +5,18 @@ import {
   CallHandler,
   BadRequestException,
   ConflictException,
-  Inject,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import Redis from 'ioredis';
-import { Observable, from, of } from 'rxjs';
+import { Observable, of } from 'rxjs';
 import { mergeMap, catchError } from 'rxjs/operators';
-import { REDIS_CLIENT } from '../../infra/redis/redis.module';
+import { RedisService } from '../../infra/redis/redis.service';
 import { IDEMPOTENT_KEY } from '../decorators/idempotent.decorator';
 
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
   constructor(
     private readonly reflector: Reflector,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly redisService: RedisService,
   ) {}
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
@@ -28,6 +26,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
     ]);
 
     if (!isIdempotent) {
+      return next.handle();
+    }
+
+    if (!this.redisService.isAvailable()) {
       return next.handle();
     }
 
@@ -43,15 +45,16 @@ export class IdempotencyInterceptor implements NestInterceptor {
       throw new BadRequestException('Invalid X-Idempotency-Key header format');
     }
 
+    const redis = this.redisService.getClient();
     const redisKey = `idempotency:${idempotencyKey}`;
 
     // Try to set key as 'processing' with a 24-hour expiration (86400 seconds)
     // 'NX' flag ensures it only succeeds if key doesn't exist
-    const lockAcquired = await this.redis.set(redisKey, 'processing', 'EX', 86400, 'NX');
+    const lockAcquired = await redis.set(redisKey, 'processing', 'EX', 86400, 'NX');
 
     if (!lockAcquired) {
       // Key exists; fetch its status
-      const val = await this.redis.get(redisKey);
+      const val = await redis.get(redisKey);
 
       if (val === 'processing') {
         throw new ConflictException(
@@ -68,7 +71,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
           }
         } catch {
           // Fallback if serialization failed: delete invalid key and let execution proceed
-          await this.redis.del(redisKey);
+          await redis.del(redisKey);
         }
       }
     }
@@ -77,7 +80,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     return next.handle().pipe(
       mergeMap(async (response) => {
         // Cache successful response
-        await this.redis.set(
+        await redis.set(
           redisKey,
           JSON.stringify({ status: 'completed', body: response }),
           'EX',
@@ -87,7 +90,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
       }),
       catchError(async (error) => {
         // Delete key on execution failure to allow retrying
-        await this.redis.del(redisKey);
+        await redis.del(redisKey);
         throw error;
       }),
     );

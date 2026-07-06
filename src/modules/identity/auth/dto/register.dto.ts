@@ -1,4 +1,14 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, ValidateNested, IsEnum, IsInt } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateNested,
+  IsEnum,
+  IsInt,
+  IsArray,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { VetSpecialization } from '@prisma/client';
 
@@ -16,8 +26,9 @@ export class VetProfilePayloadDto {
   licenseDocUrl?: string;
 
   @IsOptional()
-  @IsEnum(VetSpecialization)
-  specialization?: VetSpecialization;
+  @IsArray()
+  @IsEnum(VetSpecialization, { each: true })
+  specializations?: VetSpecialization[];
 
   @IsOptional()
   @IsInt()
@@ -64,11 +75,10 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   lastName: string;
-  
+
   @IsString()
   @IsOptional()
   displayName?: string;
-  
 
   @IsString()
   @IsOptional()
@@ -83,6 +93,10 @@ export class RegisterDto {
   @ValidateNested()
   @Type(() => VendorProfilePayloadDto)
   vendorProfile?: VendorProfilePayloadDto;
+
+  @IsString()
+  @IsOptional()
+  timezone?: string;
 }
 
 export class LinkVetProfileDto {
@@ -99,8 +113,9 @@ export class LinkVetProfileDto {
   licenseNumber?: string;
 
   @IsOptional()
-  @IsEnum(VetSpecialization)
-  specialization?: VetSpecialization;
+  @IsArray()
+  @IsEnum(VetSpecialization, { each: true })
+  specializations?: VetSpecialization[];
 
   @IsOptional()
   @IsInt()

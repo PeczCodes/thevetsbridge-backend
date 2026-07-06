@@ -1,8 +1,18 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaystackProvider } from '../providers/paystack.provider';
 import { LedgerService } from './ledger.service';
-import { Prisma, PaymentPurpose, PaymentStatus, PaymentProvider } from '@prisma/client';
+import {
+  Prisma,
+  PaymentPurpose,
+  PaymentStatus,
+  PaymentProvider,
+} from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import * as crypto from 'crypto';
 
@@ -13,7 +23,7 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paystackProvider: PaystackProvider,
-    private readonly ledgerService: LedgerService
+    private readonly ledgerService: LedgerService,
   ) {}
 
   /**
@@ -26,10 +36,12 @@ export class PaymentService {
     purpose: PaymentPurpose,
     targetId: string,
     callbackUrl: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
   ) {
     const correlationId = crypto.randomUUID();
-    this.logger.log(`[Correlation ID: ${correlationId}] Initiating payment process for User: ${userId}, Target: ${targetId}, Purpose: ${purpose}`);
+    this.logger.log(
+      `[Correlation ID: ${correlationId}] Initiating payment process for User: ${userId}, Target: ${targetId}, Purpose: ${purpose}`,
+    );
 
     let parsedAmount: Decimal;
 
@@ -52,7 +64,9 @@ export class PaymentService {
         throw new NotFoundException(`Appointment ${targetId} not found`);
       }
       if (!appointment.vet.consultationFee) {
-        throw new BadRequestException(`Consultation fee is not set for veterinarian on appointment ${targetId}`);
+        throw new BadRequestException(
+          `Consultation fee is not set for veterinarian on appointment ${targetId}`,
+        );
       }
       parsedAmount = new Decimal(appointment.vet.consultationFee);
     } else {
@@ -60,7 +74,9 @@ export class PaymentService {
     }
 
     if (parsedAmount.lte(0)) {
-      this.logger.warn(`[Correlation ID: ${correlationId}] Failed to initiate payment: Invalid calculated amount ${parsedAmount.toString()}`);
+      this.logger.warn(
+        `[Correlation ID: ${correlationId}] Failed to initiate payment: Invalid calculated amount ${parsedAmount.toString()}`,
+      );
       throw new BadRequestException('Payment amount must be greater than zero');
     }
 
@@ -69,7 +85,10 @@ export class PaymentService {
       where: {
         OR: [
           { orderId: purpose === PaymentPurpose.ORDER ? targetId : undefined },
-          { appointmentId: purpose === PaymentPurpose.APPOINTMENT ? targetId : undefined },
+          {
+            appointmentId:
+              purpose === PaymentPurpose.APPOINTMENT ? targetId : undefined,
+          },
         ].filter(Boolean) as any,
       },
     });
@@ -80,27 +99,48 @@ export class PaymentService {
         existingPayment.status === PaymentStatus.PAID_IN_ESCROW ||
         existingPayment.status === PaymentStatus.RELEASED
       ) {
-        this.logger.warn(`[Correlation ID: ${correlationId}] Failed to initiate: Target ${targetId} already paid`);
-        throw new BadRequestException('This order or appointment has already been paid for');
+        this.logger.warn(
+          `[Correlation ID: ${correlationId}] Failed to initiate: Target ${targetId} already paid`,
+        );
+        throw new BadRequestException(
+          'This order or appointment has already been paid for',
+        );
       }
 
       // 1. Verify with Paystack to see if the user actually paid it recently
-      this.logger.log(`[Correlation ID: ${correlationId}] Verifying existing payment reference with Paystack...`);
-      const verifyResult = await this.paystackProvider.verifyTransaction(existingPayment.reference);
-      
+      this.logger.log(
+        `[Correlation ID: ${correlationId}] Verifying existing payment reference with Paystack...`,
+      );
+      const verifyResult = await this.paystackProvider.verifyTransaction(
+        existingPayment.reference,
+      );
+
       if (verifyResult.status === 'success') {
-        this.logger.log(`[Correlation ID: ${correlationId}] Payment was already successful on Paystack! Fulfilling now.`);
-        await this.verifyAndFulfillPayment(existingPayment.reference, undefined, correlationId);
-        throw new BadRequestException('This order or appointment has already been paid for');
+        this.logger.log(
+          `[Correlation ID: ${correlationId}] Payment was already successful on Paystack! Fulfilling now.`,
+        );
+        await this.verifyAndFulfillPayment(
+          existingPayment.reference,
+          undefined,
+          correlationId,
+        );
+        throw new BadRequestException(
+          'This order or appointment has already been paid for',
+        );
       }
 
       // 2. Paystack does not allow initializing an existing reference. We must generate a NEW reference
       // but we update the existing Payment record to prevent duplicating DB records.
-      const newRandomBytes = crypto.randomBytes(6).toString('hex').toUpperCase();
+      const newRandomBytes = crypto
+        .randomBytes(6)
+        .toString('hex')
+        .toUpperCase();
       const newReference = `VETS-${purpose.substring(0, 3)}-${Date.now()}-${newRandomBytes}`;
 
-      this.logger.log(`[Correlation ID: ${correlationId}] Re-initializing checkout with NEW reference ${newReference} for existing Payment ID: ${existingPayment.id}`);
-      
+      this.logger.log(
+        `[Correlation ID: ${correlationId}] Re-initializing checkout with NEW reference ${newReference} for existing Payment ID: ${existingPayment.id}`,
+      );
+
       await this.prisma.payment.update({
         where: { id: existingPayment.id },
         data: { reference: newReference },
@@ -111,7 +151,7 @@ export class PaymentService {
         parsedAmount,
         newReference,
         callbackUrl,
-        { userId, purpose, targetId, correlationId }
+        { userId, purpose, targetId, correlationId },
       );
 
       return {
@@ -126,13 +166,17 @@ export class PaymentService {
     const reference = `VETS-${purpose.substring(0, 3)}-${Date.now()}-${randomBytes}`;
 
     // 3. Determine dbIdempotencyKey (use header key if available, else fallback to natural target key)
-    const dbIdempotencyKey = idempotencyKey || (purpose === PaymentPurpose.ORDER 
-      ? `ORDER_${targetId}` 
-      : `APPOINTMENT_${targetId}`);
+    const dbIdempotencyKey =
+      idempotencyKey ||
+      (purpose === PaymentPurpose.ORDER
+        ? `ORDER_${targetId}`
+        : `APPOINTMENT_${targetId}`);
 
     // 4. Create initial PENDING payment record in database
-    this.logger.log(`[Correlation ID: ${correlationId}] Creating new Payment record with Reference: ${reference}, IdempotencyKey: ${dbIdempotencyKey}`);
-    
+    this.logger.log(
+      `[Correlation ID: ${correlationId}] Creating new Payment record with Reference: ${reference}, IdempotencyKey: ${dbIdempotencyKey}`,
+    );
+
     let payment;
     try {
       payment = await this.prisma.payment.create({
@@ -146,22 +190,31 @@ export class PaymentService {
           reference,
           idempotencyKey: dbIdempotencyKey,
           orderId: purpose === PaymentPurpose.ORDER ? targetId : null,
-          appointmentId: purpose === PaymentPurpose.APPOINTMENT ? targetId : null,
+          appointmentId:
+            purpose === PaymentPurpose.APPOINTMENT ? targetId : null,
         },
       });
     } catch (error: any) {
       if (
-        error.code === 'P2002' && 
-        (error.meta?.target?.includes('idempotencyKey') || 
-         error.meta?.target?.includes('orderId') || 
-         error.meta?.target?.includes('appointmentId'))
+        error.code === 'P2002' &&
+        (error.meta?.target?.includes('idempotencyKey') ||
+          error.meta?.target?.includes('orderId') ||
+          error.meta?.target?.includes('appointmentId'))
       ) {
-        this.logger.log(`[Correlation ID: ${correlationId}] Concurrency check: Unique key conflict detected. Fetching existing payment record...`);
+        this.logger.log(
+          `[Correlation ID: ${correlationId}] Concurrency check: Unique key conflict detected. Fetching existing payment record...`,
+        );
         const concurrentPayment = await this.prisma.payment.findFirst({
           where: {
             OR: [
-              { orderId: purpose === PaymentPurpose.ORDER ? targetId : undefined },
-              { appointmentId: purpose === PaymentPurpose.APPOINTMENT ? targetId : undefined },
+              {
+                orderId:
+                  purpose === PaymentPurpose.ORDER ? targetId : undefined,
+              },
+              {
+                appointmentId:
+                  purpose === PaymentPurpose.APPOINTMENT ? targetId : undefined,
+              },
             ].filter(Boolean) as any,
           },
         });
@@ -175,26 +228,34 @@ export class PaymentService {
           concurrentPayment.status === PaymentStatus.PAID_IN_ESCROW ||
           concurrentPayment.status === PaymentStatus.RELEASED
         ) {
-          throw new BadRequestException('This order or appointment has already been paid for');
+          throw new BadRequestException(
+            'This order or appointment has already been paid for',
+          );
         }
 
-        const newRandomBytes = crypto.randomBytes(6).toString('hex').toUpperCase();
+        const newRandomBytes = crypto
+          .randomBytes(6)
+          .toString('hex')
+          .toUpperCase();
         const newReference = `VETS-${purpose.substring(0, 3)}-${Date.now()}-${newRandomBytes}`;
 
-        this.logger.log(`[Correlation ID: ${correlationId}] Re-initializing checkout with NEW reference ${newReference} for concurrent Payment ID: ${concurrentPayment.id}`);
-        
+        this.logger.log(
+          `[Correlation ID: ${correlationId}] Re-initializing checkout with NEW reference ${newReference} for concurrent Payment ID: ${concurrentPayment.id}`,
+        );
+
         await this.prisma.payment.update({
           where: { id: concurrentPayment.id },
           data: { reference: newReference },
         });
 
-        const paystackResult = await this.paystackProvider.initializeTransaction(
-          email,
-          parsedAmount,
-          newReference,
-          callbackUrl,
-          { userId, purpose, targetId, correlationId }
-        );
+        const paystackResult =
+          await this.paystackProvider.initializeTransaction(
+            email,
+            parsedAmount,
+            newReference,
+            callbackUrl,
+            { userId, purpose, targetId, correlationId },
+          );
 
         return {
           paymentId: concurrentPayment.id,
@@ -207,23 +268,29 @@ export class PaymentService {
 
     // 5. Request Checkout link from Paystack API
     try {
-      this.logger.log(`[Correlation ID: ${correlationId}] Initializing transaction with Paystack API`);
+      this.logger.log(
+        `[Correlation ID: ${correlationId}] Initializing transaction with Paystack API`,
+      );
       const paystackResult = await this.paystackProvider.initializeTransaction(
         email,
         parsedAmount,
         reference,
         callbackUrl,
-        { userId, purpose, targetId, correlationId }
+        { userId, purpose, targetId, correlationId },
       );
 
-      this.logger.log(`[Correlation ID: ${correlationId}] Paystack authorization generated successfully for Reference: ${reference}`);
+      this.logger.log(
+        `[Correlation ID: ${correlationId}] Paystack authorization generated successfully for Reference: ${reference}`,
+      );
       return {
         paymentId: payment.id,
         reference: payment.reference,
         authorizationUrl: paystackResult.authorizationUrl,
       };
     } catch (error: any) {
-      this.logger.error(`[Correlation ID: ${correlationId}] Paystack transaction initialization failed: ${error.message}`);
+      this.logger.error(
+        `[Correlation ID: ${correlationId}] Paystack transaction initialization failed: ${error.message}`,
+      );
       // Revert payment creation in DB if provider request fails
       await this.prisma.payment.delete({
         where: { id: payment.id },
@@ -235,13 +302,22 @@ export class PaymentService {
   /**
    * Performs active verification against Paystack API, and if paid, fulfills the payment transactionally in DB.
    */
-  async verifyAndFulfillPayment(reference: string, eventId?: string, correlationId = 'UNKNOWN-CORRELATION-ID'): Promise<any> {
-    this.logger.log(`[Correlation ID: ${correlationId}] Starting verification for Reference: ${reference}`);
+  async verifyAndFulfillPayment(
+    reference: string,
+    eventId?: string,
+    correlationId = 'UNKNOWN-CORRELATION-ID',
+  ): Promise<any> {
+    this.logger.log(
+      `[Correlation ID: ${correlationId}] Starting verification for Reference: ${reference}`,
+    );
 
     // 1. Query current state of transaction directly from Paystack API
-    const verifyResult = await this.paystackProvider.verifyTransaction(reference);
+    const verifyResult =
+      await this.paystackProvider.verifyTransaction(reference);
     if (verifyResult.status !== 'success') {
-      throw new Error(`Transaction ${reference} status is: ${verifyResult.status}. Verification not complete.`);
+      throw new Error(
+        `Transaction ${reference} status is: ${verifyResult.status}. Verification not complete.`,
+      );
     }
 
     // 2. Perform transactional update inside PostgreSQL with a SELECT FOR UPDATE row lock
@@ -249,22 +325,32 @@ export class PaymentService {
       async (tx) => {
         // Query the payment record with a raw SQL query to apply FOR UPDATE lock
         const payments = await tx.$queryRaw<any[]>(
-          Prisma.sql`SELECT * FROM "Payment" WHERE "reference" = ${reference} FOR UPDATE`
+          Prisma.sql`SELECT * FROM "Payment" WHERE "reference" = ${reference} FOR UPDATE`,
         );
 
         if (!payments || payments.length === 0) {
-          throw new Error(`Payment record not found for reference: ${reference}`);
+          throw new Error(
+            `Payment record not found for reference: ${reference}`,
+          );
         }
 
         const payment = payments[0];
 
         // Idempotency check: If already processed, make it a clean no-op
-        if (payment.status === PaymentStatus.SUCCEEDED || payment.status === PaymentStatus.PAID_IN_ESCROW) {
-          this.logger.log(`[Correlation ID: ${correlationId}] Payment ${reference} is already completed. No-op.`);
+        if (
+          payment.status === PaymentStatus.SUCCEEDED ||
+          payment.status === PaymentStatus.PAID_IN_ESCROW
+        ) {
+          this.logger.log(
+            `[Correlation ID: ${correlationId}] Payment ${reference} is already completed. No-op.`,
+          );
           return;
         }
 
-        const newStatus = payment.purpose === 'ORDER' ? PaymentStatus.PAID_IN_ESCROW : PaymentStatus.SUCCEEDED;
+        const newStatus =
+          payment.purpose === 'ORDER' || payment.purpose === 'APPOINTMENT'
+            ? PaymentStatus.PAID_IN_ESCROW
+            : PaymentStatus.SUCCEEDED;
 
         // Update Payment status and record paidAt time
         await tx.payment.update({
@@ -272,18 +358,22 @@ export class PaymentService {
           data: {
             status: newStatus,
             paidAt: new Date(),
-            providerResponse: verifyResult.rawResponse as any,
+            providerResponse: verifyResult.rawResponse,
           },
         });
 
-        // Write to state audit logs
-        await tx.paymentEvent.create({
+        // Write to unified audit logs
+        await tx.auditLog.create({
           data: {
-            paymentId: payment.id,
-            eventType: 'payment.completed',
-            fromStatus: payment.status as PaymentStatus,
-            toStatus: newStatus,
-            metadata: verifyResult.rawResponse as any,
+            userId: payment.userId,
+            action: 'PAYMENT_COMPLETED',
+            entityType: 'PAYMENT',
+            entityId: payment.id,
+            metadata: {
+              reference: payment.reference,
+              amount: payment.amount.toString(),
+              provider: payment.provider,
+            },
           },
         });
 
@@ -292,7 +382,9 @@ export class PaymentService {
           where: { key: 'commission_rate' },
         });
         const commissionPercent = parseFloat(commissionSetting?.value || '5');
-        const platformFee = verifyResult.amountPaid.mul(commissionPercent / 100);
+        const platformFee = verifyResult.amountPaid.mul(
+          commissionPercent / 100,
+        );
 
         let targetUserId = payment.userId;
         let appointmentForEarning: any = null;
@@ -313,7 +405,7 @@ export class PaymentService {
           verifyResult.amountPaid,
           targetUserId,
           payment.purpose,
-          platformFee
+          platformFee,
         );
 
         // Update corresponding business module entities
@@ -323,22 +415,20 @@ export class PaymentService {
             data: { status: 'PAID' },
           });
         } else if (payment.purpose === 'APPOINTMENT' && payment.appointmentId) {
-          await tx.appointment.update({
+          const updatedAppt = await tx.appointment.update({
             where: { id: payment.appointmentId },
             data: { status: 'CONFIRMED' },
           });
 
-          // Create the corresponding VetEarning record!
-          if (appointmentForEarning && appointmentForEarning.vet) {
-            await tx.vetEarning.create({
-              data: {
-                vetId: appointmentForEarning.vetId,
-                appointmentId: appointmentForEarning.id,
-                grossAmount: verifyResult.amountPaid,
-                platformFee: platformFee,
-                netAmount: verifyResult.amountPaid.minus(platformFee),
-                status: 'PENDING',
-              },
+          await tx.consultation.updateMany({
+            where: { appointmentId: payment.appointmentId },
+            data: { status: 'CONFIRMED' },
+          });
+
+          if (updatedAppt.slotId) {
+            await tx.vetSlot.update({
+              where: { id: updatedAppt.slotId },
+              data: { status: 'BOOKED' },
             });
           }
         }
@@ -355,7 +445,9 @@ export class PaymentService {
         }
 
         // Write to transactional OutboxEvent table
-        this.logger.log(`[Correlation ID: ${correlationId}] Writing PAYMENT_COMPLETED event to Outbox table`);
+        this.logger.log(
+          `[Correlation ID: ${correlationId}] Writing PAYMENT_COMPLETED event to Outbox table`,
+        );
         await tx.outboxEvent.create({
           data: {
             type: 'PAYMENT_COMPLETED',
@@ -375,10 +467,12 @@ export class PaymentService {
       {
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
         timeout: 15000,
-      }
+      },
     );
 
-    this.logger.log(`[Correlation ID: ${correlationId}] Payment verification & fulfillment completed successfully for Reference: ${reference}`);
+    this.logger.log(
+      `[Correlation ID: ${correlationId}] Payment verification & fulfillment completed successfully for Reference: ${reference}`,
+    );
     return { success: true, reference };
   }
 
@@ -393,17 +487,28 @@ export class PaymentService {
     });
 
     if (!payment) {
-      throw new NotFoundException(`Payment transaction not found for reference: ${reference}`);
+      throw new NotFoundException(
+        `Payment transaction not found for reference: ${reference}`,
+      );
     }
 
     if (payment.status === PaymentStatus.PENDING) {
       try {
-        this.logger.log(`[Active Verification] Checking status directly with Paystack for Reference: ${reference}`);
-        const verifyResult = await this.paystackProvider.verifyTransaction(reference);
+        this.logger.log(
+          `[Active Verification] Checking status directly with Paystack for Reference: ${reference}`,
+        );
+        const verifyResult =
+          await this.paystackProvider.verifyTransaction(reference);
         if (verifyResult.status === 'success') {
-          this.logger.log(`[Active Verification] Payment verified successfully via Paystack API for Reference: ${reference}. Starting fulfillment.`);
-          await this.verifyAndFulfillPayment(reference, undefined, 'ACTIVE-POLLING');
-          
+          this.logger.log(
+            `[Active Verification] Payment verified successfully via Paystack API for Reference: ${reference}. Starting fulfillment.`,
+          );
+          await this.verifyAndFulfillPayment(
+            reference,
+            undefined,
+            'ACTIVE-POLLING',
+          );
+
           // Re-fetch the updated payment details
           const updatedPayment = await this.prisma.payment.findUnique({
             where: { reference },
@@ -420,7 +525,9 @@ export class PaymentService {
           }
         }
       } catch (error: any) {
-        this.logger.error(`[Active Verification] Active verification failed for Reference: ${reference}: ${error.message}`);
+        this.logger.error(
+          `[Active Verification] Active verification failed for Reference: ${reference}: ${error.message}`,
+        );
       }
     }
 

@@ -38,7 +38,8 @@ export class TokenService {
       sid: sessionId,
     };
 
-    const refreshSecret = this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+    const refreshSecret =
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(accessTokenPayload, {
@@ -73,11 +74,12 @@ export class TokenService {
 
   async issueFreshAuthTokens(
     refreshToken: string,
-    context?: { ip?: string; ua?: string }
+    context?: { ip?: string; ua?: string },
   ) {
     let payload: Payload;
-    
-    const refreshSecret = this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+
+    const refreshSecret =
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
     try {
       payload = await this.jwtService.verifyAsync<Payload>(refreshToken, {
@@ -101,14 +103,19 @@ export class TokenService {
     }
 
     // Verify token against hash
-    const isValid = await this.hashingService.verify(session.refreshTokenHash, refreshToken);
+    const isValid = await this.hashingService.verify(
+      session.refreshTokenHash,
+      refreshToken,
+    );
     if (!isValid) {
       // Security: token is valid JWT but doesn't match the stored hash — possible reuse attack.
       // Revoke the session immediately to protect the account.
-      await this.prisma.session.update({
-        where: { id: payload.sid },
-        data: { isRevoked: true },
-      }).catch(() => null);
+      await this.prisma.session
+        .update({
+          where: { id: payload.sid },
+          data: { isRevoked: true },
+        })
+        .catch(() => null);
       throw new UnauthorizedException('Token verification failed');
     }
 
@@ -118,7 +125,11 @@ export class TokenService {
     const newSessionId = randomUUID();
 
     const accessTokenPayload = { sub: session.userId, email: payload.email };
-    const refreshTokenPayload = { sub: session.userId, email: payload.email, sid: newSessionId };
+    const refreshTokenPayload = {
+      sub: session.userId,
+      email: payload.email,
+      sid: newSessionId,
+    };
 
     const [newAccessToken, newRefreshToken] = await Promise.all([
       this.jwtService.signAsync(accessTokenPayload, { expiresIn: '15m' }),
@@ -154,9 +165,9 @@ export class TokenService {
     };
   }
 
-
   async revokeSession(refreshToken: string) {
-    const refreshSecret = this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+    const refreshSecret =
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
     try {
       const payload = await this.jwtService.verifyAsync<Payload>(refreshToken, {
         secret: refreshSecret,

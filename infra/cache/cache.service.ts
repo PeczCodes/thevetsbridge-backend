@@ -1,17 +1,26 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import Redis from 'ioredis';
-import { REDIS_CLIENT } from '../redis/redis.module';
+import { Injectable, Logger } from '@nestjs/common';
+import { RedisService } from '../redis/redis.service';
+import { DistributedLockService } from './distributed-lock.service';
+import { CacheKeys } from './cache-keys';
 
 @Injectable()
 export class CacheService {
   private readonly logger = new Logger(CacheService.name);
-  private readonly pendingPromises = new Map<string, Promise<any>>();
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly distributedLockService: DistributedLockService,
+  ) {}
   
   async getOrSet<T>(key: string, factory: () => Promise<T>, ttlSeconds: number): Promise<T> {
+    if (!this.redisService.isAvailable()) {
+      this.logger.warn(`Redis unavailable. Bypassing cache for key "${key}" and falling back to database.`);
+      return factory();
+    }
+
+    // 1. Attempt normal cache lookup.
     try {
-      const cached = await this.redis.get(key);
+      const cached = await this.redisService.getClient().get(key);
       if (cached !== null) {
         return JSON.parse(cached) as T;
       }
@@ -19,49 +28,127 @@ export class CacheService {
       this.logger.warn(`Failed to read from cache for key "${key}":`, error);
     }
 
-    let pending = this.pendingPromises.get(key);
-    if (pending) {
-      this.logger.log(`Cache stampede protected for key "${key}". Waiting on existing execution.`);
-      return pending;
-    }
+    // 2. Cache miss: acquire distributed lock to protect database
+    const lockKey = `lock:cache:${key}`;
+    const ttlMs = 10000; // 10 seconds lock lifetime to regenerate entry safely
 
-    const promise = (async () => {
-      try {
+    try {
+      return await this.distributedLockService.using(lockKey, ttlMs, async () => {
+        // Double-check: Another instance might have populated Redis while this process waited
+        try {
+          const cachedDoubleCheck = await this.redisService.getClient().get(key);
+          if (cachedDoubleCheck !== null) {
+            this.logger.log(`[Cache Stampede] Cache populated by another node for key "${key}". Reusing value.`);
+            return JSON.parse(cachedDoubleCheck) as T;
+          }
+        } catch (error) {
+          this.logger.warn(`[Cache Stampede] Double-check read failed for key "${key}":`, error);
+        }
+
+        // Lock holder executes factory
+        this.logger.log(`[Cache Stampede] Lock acquired. Executing regeneration factory for key "${key}".`);
         const result = await factory();
-        
+
+        // Save to cache with Jitter
         const maxJitter = Math.min(ttlSeconds * 0.1, 5);
         const jitter = Math.floor((Math.random() - 0.5) * maxJitter * 2);
         const finalTtl = Math.max(1, ttlSeconds + jitter);
 
         try {
-          await this.redis.set(key, JSON.stringify(result), 'EX', finalTtl);
+          await this.redisService.getClient().set(key, JSON.stringify(result), 'EX', finalTtl);
         } catch (setErr) {
           this.logger.warn(`Failed to write to cache for key "${key}":`, setErr);
         }
 
         return result;
-      } finally {
-        this.pendingPromises.delete(key);
-      }
-    })();
+      });
+    } catch (err: any) {
+      // 3. Lock acquisition failed (contention / timeout)
+      // Retry cache lookup a few times with short delay (backoff) to wait for owner to populate cache
+      this.logger.warn(`[Cache Stampede] Failed to acquire lock for key "${key}". Retrying cache lookup...`);
+      
+      const retryAttempts = 5;
+      const retryDelayMs = 100;
 
-    this.pendingPromises.set(key, promise);
-    return promise;
+      for (let attempt = 1; attempt <= retryAttempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        
+        try {
+          if (this.redisService.isAvailable()) {
+            const retryCached = await this.redisService.getClient().get(key);
+            if (retryCached !== null) {
+              this.logger.log(`[Cache Stampede] Cache found on retry attempt ${attempt} for key "${key}".`);
+              return JSON.parse(retryCached) as T;
+            }
+          }
+        } catch (retryReadErr) {
+          this.logger.warn(`Failed to read from cache during retry for key "${key}":`, retryReadErr);
+        }
+      }
+
+      // 4. Fallback to direct execution if cache is still not populated
+      this.logger.warn(`[Cache Stampede] Cache still missing for key "${key}" after retries. Falling back to database directly.`);
+      return factory();
+    }
   }
 
   async get(key: string): Promise<string | null> {
-    return this.redis.get(key);
+    if (!this.redisService.isAvailable()) {
+      return null;
+    }
+    try {
+      return await this.redisService.getClient().get(key);
+    } catch (error) {
+      this.logger.warn(`Failed to read from cache for key "${key}":`, error);
+      return null;
+    }
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    if (ttlSeconds) {
-      await this.redis.set(key, value, 'EX', ttlSeconds);
-    } else {
-      await this.redis.set(key, value);
+    if (!this.redisService.isAvailable()) {
+      return;
+    }
+    try {
+      if (ttlSeconds) {
+        await this.redisService.getClient().set(key, value, 'EX', ttlSeconds);
+      } else {
+        await this.redisService.getClient().set(key, value);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to write to cache for key "${key}":`, error);
     }
   }
 
   async del(key: string): Promise<void> {
-    await this.redis.del(key);
+    if (!this.redisService.isAvailable()) {
+      return;
+    }
+    try {
+      await this.redisService.getClient().del(key);
+      this.logger.log(`[Cache Invalidation] Deleted cache key: "${key}"`);
+    } catch (error) {
+      this.logger.warn(`Failed to delete cache for key "${key}":`, error);
+    }
+  }
+
+  async invalidateUser(userId: string): Promise<void> {
+    await this.del(CacheKeys.authMe(userId));
+    await this.del(CacheKeys.user(userId));
+    await this.del(CacheKeys.userProfile(userId));
+  }
+
+  async invalidateVet(userId: string, vetId: string): Promise<void> {
+    await this.del(CacheKeys.authMe(userId));
+    await this.del(CacheKeys.vet(vetId));
+  }
+
+  async invalidateVendor(userId: string, vendorId: string): Promise<void> {
+    await this.del(CacheKeys.authMe(userId));
+    await this.del(CacheKeys.vendor(vendorId));
+  }
+
+  async invalidateWallet(userId: string): Promise<void> {
+    await this.del(CacheKeys.authMe(userId));
+    await this.del(CacheKeys.wallet(userId));
   }
 }

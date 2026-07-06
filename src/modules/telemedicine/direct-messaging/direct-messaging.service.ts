@@ -1,4 +1,9 @@
-import { Injectable, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
@@ -47,7 +52,11 @@ export class DirectMessagingService {
     });
   }
 
-  async sendDirectMessage(senderId: string, channelId: string, content: string) {
+  async sendDirectMessage(
+    senderId: string,
+    channelId: string,
+    content: string,
+  ) {
     const channel = await this.prisma.directChannel.findUnique({
       where: { id: channelId },
       include: { vet: true },
@@ -80,7 +89,11 @@ export class DirectMessagingService {
     });
   }
 
-  async getChannelMessages(userId: string, channelId: string, pagination: PaginationDto) {
+  async getChannelMessages(
+    userId: string,
+    channelId: string,
+    pagination: PaginationDto,
+  ) {
     const isParticipant = await this.isParticipant(userId, channelId);
     if (!isParticipant) {
       throw new ForbiddenException('You are not a participant in this channel');
@@ -98,7 +111,11 @@ export class DirectMessagingService {
     });
   }
 
-  async toggleDirectMessaging(vetProfileId: string, enabled: boolean, price: number) {
+  async toggleDirectMessaging(
+    vetProfileId: string,
+    enabled: boolean,
+    price: number,
+  ) {
     return this.prisma.vetProfile.update({
       where: { id: vetProfileId },
       data: {

@@ -17,6 +17,7 @@ import { TokenService } from './auth/services/token.service';
 import { HashingService } from './auth/services/hash.service';
 import { SessionCleanupProcessor } from './auth/services/session-cleanup.processor';
 import { BullModule } from '@nestjs/bullmq';
+import { MediaModule } from '../media/media.module';
 
 @Module({
   imports: [
@@ -32,8 +33,14 @@ import { BullModule } from '@nestjs/bullmq';
     BullModule.registerQueue({
       name: 'session-cleanup',
     }),
+    MediaModule,
   ],
-  controllers: [AuthController, UsersController, UserController, AddressesController],
+  controllers: [
+    AuthController,
+    UsersController,
+    UserController,
+    AddressesController,
+  ],
   providers: [
     UsersService,
     AuthService,
@@ -48,6 +55,12 @@ import { BullModule } from '@nestjs/bullmq';
       useClass: JwtAuthGuard, // Protects all routes globally unless @Public()
     },
   ],
-  exports: [UsersService, TokenService, HashingService, AddressesService],
+  exports: [
+    UsersService,
+    TokenService,
+    HashingService,
+    AddressesService,
+    JwtModule,
+  ],
 })
 export class IdentityModule {}

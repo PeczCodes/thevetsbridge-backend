@@ -24,7 +24,6 @@ export class RequestLoggerMiddleware implements NestMiddleware {
       Cookies: ${JSON.stringify(req.cookies)}
       `,
     );
-    
 
     next();
   }

@@ -19,7 +19,7 @@ export interface IPaymentProvider {
     amount: Decimal,
     reference: string,
     callbackUrl: string,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
   ): Promise<InitializeTxResult>;
 
   verifyTransaction(reference: string): Promise<VerifyTxResult>;

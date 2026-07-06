@@ -5,58 +5,52 @@ import { PrismaService } from '../../../../../infra/prisma/prisma.service';
 
 @Processor('unpaid-booking-cleanup')
 @Injectable()
-export class UnpaidBookingCleanupProcessor extends WorkerHost implements OnApplicationBootstrap {
+export class UnpaidBookingCleanupProcessor
+  extends WorkerHost
+  implements OnApplicationBootstrap
+{
   private readonly logger = new Logger(UnpaidBookingCleanupProcessor.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    @InjectQueue('unpaid-booking-cleanup') private readonly cleanupQueue: Queue
+    @InjectQueue('unpaid-booking-cleanup') private readonly cleanupQueue: Queue,
   ) {
     super();
   }
 
   async onApplicationBootstrap() {
-    this.logger.log('Scheduling unpaid telemedicine bookings cleanup job...');
     try {
       const cronPattern = '*/15 * * * *'; // Run every 15 minutes
-      const repeatableJobs = await this.cleanupQueue.getRepeatableJobs();
 
-      const isAlreadyScheduled = repeatableJobs.some(
-        (job) => job.name === 'prune-unpaid-bookings' && job.pattern === cronPattern
-      );
-
-      if (isAlreadyScheduled) {
-        this.logger.log('Unpaid booking cleanup job is already scheduled with correct cron pattern. Skipping setup.');
-        return;
-      }
-
-      // Clean up previous configurations if any
-      for (const job of repeatableJobs) {
-        await this.cleanupQueue.removeRepeatableByKey(job.key);
-      }
-
-      await this.cleanupQueue.add(
-        'prune-unpaid-bookings',
-        {},
+      // Use native BullMQ v5 upsertJobScheduler for repeatability
+      await this.cleanupQueue.upsertJobScheduler(
+        'unpaid-booking-cleanup-scheduler', // stable scheduler ID
         {
-          repeat: {
-            pattern: cronPattern,
-          },
-          jobId: 'unpaid-booking-cleanup-job',
-        }
+          pattern: cronPattern,
+        },
+        {
+          name: 'prune-unpaid-bookings',
+          data: {},
+        },
       );
-      this.logger.log('Unpaid booking cleanup job scheduled successfully (Cron: "*/15 * * * *").');
     } catch (error: any) {
-      this.logger.error(`Failed to schedule unpaid booking cleanup job: ${error.message}`);
+      this.logger.error(
+        `Failed to schedule unpaid booking cleanup job: ${error.message}`,
+      );
     }
   }
 
-  /**
-   * BullMQ worker process handler.
-   */
   async process(job: Job): Promise<any> {
-    this.logger.log(`[Queue Worker] Starting unpaid booking cleanup | Job ID: ${job.id}`);
-    
+    const startTime = Date.now();
+    const metadata = {
+      queueName: job.queueName,
+      workerName: this.constructor.name,
+      jobId: job.id,
+      retryCount: job.attemptsMade,
+    };
+
+    this.logger.log({ ...metadata }, 'Starting unpaid booking cleanup');
+
     // Unpaid bookings older than 30 minutes
     const threshold = new Date(Date.now() - 30 * 60 * 1000);
 
@@ -104,12 +98,24 @@ export class UnpaidBookingCleanupProcessor extends WorkerHost implements OnAppli
         };
       });
 
+      // Native queue cleanup for unpaid-booking-cleanup queue
+      // Clean completed jobs older than 24 hours
+      await this.cleanupQueue.clean(24 * 3600 * 1000, 1000, 'completed');
+      // Clean failed jobs older than 7 days
+      await this.cleanupQueue.clean(7 * 24 * 3600 * 1000, 1000, 'failed');
+
+      const duration = Date.now() - startTime;
       this.logger.log(
-        `[Queue Worker] Unpaid booking pruning completed. Cancelled ${result.cancelledCount} appointments and ${result.consultationsCancelled} consultations.`
+        { ...metadata, duration, ...result },
+        'Unpaid booking cleanup completed',
       );
       return result;
     } catch (error: any) {
-      this.logger.error(`[Queue Worker] Unpaid booking pruning failed: ${error.message}`);
+      const duration = Date.now() - startTime;
+      this.logger.error(
+        { ...metadata, duration, err: error },
+        'Unpaid booking pruning failed',
+      );
       throw error;
     }
   }

@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Get, Param, Query, Patch, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  Query,
+  Patch,
+  UseGuards,
+} from '@nestjs/common';
 import { DirectMessagingService } from './direct-messaging.service';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
 import { RequireProfile } from '../../identity/auth/decorators/require-profile.decorator';
@@ -7,7 +16,9 @@ import { PaginationDto } from '../../../../common/dto/pagination.dto';
 
 @Controller('direct-messages')
 export class DirectMessagingController {
-  constructor(private readonly directMessagingService: DirectMessagingService) {}
+  constructor(
+    private readonly directMessagingService: DirectMessagingService,
+  ) {}
 
   @Post('channels')
   async getOrCreateChannel(
@@ -23,7 +34,11 @@ export class DirectMessagingController {
     @CurrentUser() user: any,
     @Query() pagination: PaginationDto,
   ) {
-    return this.directMessagingService.getChannelMessages(user.id, id, pagination);
+    return this.directMessagingService.getChannelMessages(
+      user.id,
+      id,
+      pagination,
+    );
   }
 
   @Patch('settings')

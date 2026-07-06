@@ -1,13 +1,27 @@
-import { Controller, Post, Body, Get, Delete, Param, Put } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Delete,
+  Param,
+  Put,
+  ForbiddenException,
+} from '@nestjs/common';
 import { AnimalsService } from './animals.service';
 import { CreateAnimalDto } from './dto/create-animal.dto';
 import { UpdateAnimalDto } from './dto/update-animal.dto';
 import { CreateAnimalHealthLogDto } from './dto/create-health-log.dto';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
+import { MediaService } from '../media/media.service';
+import { MediaOwnerType, MediaResourceType } from '@prisma/client';
 
 @Controller('animals')
 export class AnimalsController {
-  constructor(private readonly animalsService: AnimalsService) {}
+  constructor(
+    private readonly animalsService: AnimalsService,
+    private readonly mediaService: MediaService,
+  ) {}
 
   @Post()
   async createAnimal(@CurrentUser() user: any, @Body() dto: CreateAnimalDto) {
@@ -36,6 +50,24 @@ export class AnimalsController {
   @Delete(':id')
   async deleteAnimal(@CurrentUser() user: any, @Param('id') id: string) {
     return this.animalsService.deleteAnimal(user.id, id);
+  }
+
+  @Post(':id/profile/upload-intent')
+  async getProfileUploadIntent(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+  ) {
+    const isOwner = await this.animalsService.isOwner(user.id, id);
+    if (!isOwner) {
+      throw new ForbiddenException('You do not own this animal');
+    }
+
+    return this.mediaService.createUploadIntent({
+      ownerType: MediaOwnerType.ANIMAL,
+      ownerId: id,
+      resourceType: MediaResourceType.PROFILE_IMAGE,
+      uploaderId: user.id,
+    });
   }
 
   @Post(':animalId/health-logs')

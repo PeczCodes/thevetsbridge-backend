@@ -122,12 +122,21 @@ describe('PaymentService', () => {
         gatewayResponse: 'Not paid yet',
       });
 
-      paystackMock.initializeTransaction.mockImplementation((email, amount, ref) => Promise.resolve({
-        authorizationUrl: 'https://checkout.paystack.co/auth',
-        reference: ref,
-      }));
+      paystackMock.initializeTransaction.mockImplementation(
+        (email, amount, ref) =>
+          Promise.resolve({
+            authorizationUrl: 'https://checkout.paystack.co/auth',
+            reference: ref,
+          }),
+      );
 
-      const result = await service.initiatePayment(userId, email, purpose, targetId, callbackUrl);
+      const result = await service.initiatePayment(
+        userId,
+        email,
+        purpose,
+        targetId,
+        callbackUrl,
+      );
 
       expect(result.reference).toContain('VETS-ORD-');
       expect(paystackMock.initializeTransaction).toHaveBeenCalledWith(
@@ -142,7 +151,7 @@ describe('PaymentService', () => {
 
     it('should create new pending payment and call Paystack initialize on new session', async () => {
       prismaMock.payment.findFirst.mockResolvedValue(null);
-      
+
       const newRef = 'VETS-ORD-NEW';
       prismaMock.payment.create.mockResolvedValue({
         id: 'pay-new',
@@ -155,7 +164,13 @@ describe('PaymentService', () => {
         reference: newRef,
       });
 
-      const result = await service.initiatePayment(userId, email, purpose, targetId, callbackUrl);
+      const result = await service.initiatePayment(
+        userId,
+        email,
+        purpose,
+        targetId,
+        callbackUrl,
+      );
 
       expect(result.reference).toBe(newRef);
       expect(prismaMock.payment.create).toHaveBeenCalled();
@@ -170,7 +185,9 @@ describe('PaymentService', () => {
         status: PaymentStatus.PENDING,
       });
 
-      paystackMock.initializeTransaction.mockRejectedValue(new Error('Paystack Gateway Error'));
+      paystackMock.initializeTransaction.mockRejectedValue(
+        new Error('Paystack Gateway Error'),
+      );
 
       await expect(
         service.initiatePayment(userId, email, purpose, targetId, callbackUrl),
@@ -200,7 +217,9 @@ describe('PaymentService', () => {
     it('should throw NotFoundException if payment reference does not exist', async () => {
       prismaMock.payment.findUnique.mockResolvedValue(null);
 
-      await expect(service.getPaymentStatus('INVALID-REF')).rejects.toThrow(NotFoundException);
+      await expect(service.getPaymentStatus('INVALID-REF')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

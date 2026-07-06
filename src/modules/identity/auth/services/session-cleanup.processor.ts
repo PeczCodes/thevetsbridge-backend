@@ -5,69 +5,101 @@ import { PrismaService } from '../../../../../infra/prisma/prisma.service';
 
 @Processor('session-cleanup')
 @Injectable()
-export class SessionCleanupProcessor extends WorkerHost implements OnApplicationBootstrap {
+export class SessionCleanupProcessor
+  extends WorkerHost
+  implements OnApplicationBootstrap
+{
   private readonly logger = new Logger(SessionCleanupProcessor.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    @InjectQueue('session-cleanup') private readonly cleanupQueue: Queue
+    @InjectQueue('session-cleanup') private readonly cleanupQueue: Queue,
   ) {
     super();
   }
 
   async onApplicationBootstrap() {
-    this.logger.log('Scheduling daily database session cleanup job...');
     try {
-      const cronPattern = '0 0 * * *';
-      const repeatableJobs = await this.cleanupQueue.getRepeatableJobs();
-      
-      const isAlreadyScheduled = repeatableJobs.some(
-        (job) => job.name === 'prune-sessions' && job.pattern === cronPattern
-      );
+      const cronPattern = '0 * * * *'; // Run hourly
 
-      if (isAlreadyScheduled) {
-        this.logger.log('Daily database session cleanup job is already scheduled with correct cron pattern. Skipping setup.');
-        return;
-      }
-
-      // Configuration has changed or is not present, clean up existing repeatable configurations in Redis
-      for (const job of repeatableJobs) {
-        await this.cleanupQueue.removeRepeatableByKey(job.key);
-      }
-
-      // Add a repeatable job running every 24 hours (every day at midnight)
-      await this.cleanupQueue.add(
-        'prune-sessions',
-        {},
+      // Use native BullMQ v5 upsertJobScheduler for repeatability
+      await this.cleanupQueue.upsertJobScheduler(
+        'hourly-session-cleanup-scheduler', // stable scheduler ID
         {
-          repeat: {
-            pattern: cronPattern, // Run once every day at midnight (24h)
-          },
-          jobId: 'daily-session-cleanup',
+          pattern: cronPattern,
+        },
+        {
+          name: 'prune-sessions',
+          data: {},
         },
       );
-      this.logger.log('Daily database session cleanup job scheduled successfully (Cron: "0 0 * * *").');
     } catch (error: any) {
-      this.logger.error(`Failed to schedule daily session cleanup job: ${error.message}`);
+      this.logger.error(
+        `Failed to schedule hourly session and token cleanup job: ${error.message}`,
+      );
     }
   }
 
-  /**
-   * BullMQ worker process handler. This runs inside the queue context.
-   * In a clustered/multi-instance deployment, only one instance will pick up and execute this daily block.
-   */
   async process(job: Job): Promise<any> {
-    this.logger.log(`[Queue Worker] Starting database session cleanup | Job ID: ${job.id}`);
+    const startTime = Date.now();
+    const metadata = {
+      queueName: job.queueName,
+      workerName: this.constructor.name,
+      jobId: job.id,
+      retryCount: job.attemptsMade,
+    };
+
+    this.logger.log(
+      { ...metadata },
+      'Starting hourly session and token cleanup',
+    );
+
     try {
-      const deleteResult = await this.prisma.session.deleteMany({
+      // Prune expired or revoked sessions
+      const deleteSessionsResult = await this.prisma.session.deleteMany({
         where: {
-          expiresAt: { lt: new Date() },
+          OR: [{ expiresAt: { lt: new Date() } }, { isRevoked: true }],
         },
       });
-      this.logger.log(`[Queue Worker] Pruning completed. Removed ${deleteResult.count} expired session records.`);
-      return { prunedCount: deleteResult.count };
+
+      // Prune expired or used password reset tokens older than 7 days
+      const usedRetentionDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const deleteTokensResult =
+        await this.prisma.passwordResetToken.deleteMany({
+          where: {
+            OR: [
+              { expiresAt: { lt: new Date() } },
+              { usedAt: { lt: usedRetentionDate } },
+            ],
+          },
+        });
+
+      // Native queue cleanup for session-cleanup queue
+      // Clean completed jobs older than 24 hours
+      await this.cleanupQueue.clean(24 * 3600 * 1000, 1000, 'completed');
+      // Clean failed jobs older than 7 days
+      await this.cleanupQueue.clean(7 * 24 * 3600 * 1000, 1000, 'failed');
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        {
+          ...metadata,
+          duration,
+          prunedSessionsCount: deleteSessionsResult.count,
+          prunedTokensCount: deleteTokensResult.count,
+        },
+        'Hourly session and token cleanup completed',
+      );
+      return {
+        prunedSessionsCount: deleteSessionsResult.count,
+        prunedTokensCount: deleteTokensResult.count,
+      };
     } catch (error: any) {
-      this.logger.error(`[Queue Worker] Pruning expired sessions failed: ${error.message}`);
+      const duration = Date.now() - startTime;
+      this.logger.error(
+        { ...metadata, duration, err: error },
+        'Pruning expired sessions and tokens failed',
+      );
       throw error;
     }
   }

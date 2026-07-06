@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { getEmailTemplate } from '../../../common/utils/email-templates';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CircuitBreakerService } from '../../circuit-breaker/circuit-breaker.service';
+import { ExternalServiceException } from '../../circuit-breaker/exceptions/external-service.exception';
 
 @Processor('notifications')
 export class NotificationsQueueWorker extends WorkerHost {
@@ -12,6 +14,7 @@ export class NotificationsQueueWorker extends WorkerHost {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly circuitBreakerService: CircuitBreakerService,
   ) {
     super();
   }
@@ -68,30 +71,62 @@ ${html}
 
         try {
           this.logger.log(`[Queue Worker] [EMAIL] Dispatching POST request to Resend API for ${to}`);
-          const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from: rawFrom.includes('onboarding@resend.dev') ? 'onboarding@resend.dev' : rawFrom,
-              to: [to],
-              subject: finalSubject,
-              html: html,
-            }),
-          });
+          
+          // Wrap with resend circuit breaker and align abort signals
+          const response = await this.circuitBreakerService.execute(
+            'resend',
+            async () => {
+              const resendConfig = this.configService.get('circuitBreaker.providers.resend');
+              const timeoutMs = Number(resendConfig?.timeout || 50000);
+
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), timeoutMs);
+              try {
+                return await fetch('https://api.resend.com/emails', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    from: rawFrom.includes('onboarding@resend.dev') ? 'onboarding@resend.dev' : rawFrom,
+                    to: [to],
+                    subject: finalSubject,
+                    html: html,
+                  }),
+                  signal: controller.signal,
+                });
+              } finally {
+                clearTimeout(id);
+              }
+            }
+          );
 
           if (!response.ok) {
             const errBody = await response.text();
-            throw new Error(`Resend API error (${response.status}): ${errBody}`);
+            throw new ExternalServiceException({
+              provider: 'resend',
+              message: `Resend API error (${response.status}): ${errBody}`,
+              retryable: response.status >= 500 || response.status === 429,
+              statusCode: response.status,
+            });
           }
 
           const resData: any = await response.json();
           this.logger.log(`[Queue Worker] [EMAIL] Email successfully sent via Resend to ${to}. Email ID: ${resData.id}`);
         } catch (error: any) {
           this.logger.error(`[Queue Worker] [EMAIL] Failed to send email to ${to} via Resend. Retrying job. Error: ${error.message}`);
-          throw error; // throw to trigger BullMQ retry
+          if (error instanceof ExternalServiceException) {
+            throw error;
+          }
+          const isAbort = error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('Timed out');
+          throw new ExternalServiceException({
+            provider: 'resend',
+            message: `Resend API request failed: ${error.message}`,
+            retryable: isAbort || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT',
+            statusCode: isAbort ? 504 : 502,
+            reason: error,
+          });
         }
         break;
       }

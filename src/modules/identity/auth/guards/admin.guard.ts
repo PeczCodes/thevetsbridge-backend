@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
@@ -11,7 +16,9 @@ export class AdminGuard implements CanActivate {
     }
 
     if (!user.isAdmin) {
-      throw new ForbiddenException('Admin profile required to perform this action');
+      throw new ForbiddenException(
+        'Admin profile required to perform this action',
+      );
     }
 
     return true;

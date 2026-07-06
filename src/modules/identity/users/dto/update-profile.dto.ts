@@ -40,4 +40,8 @@ export class UpdateProfileDto {
   @ValidateNested()
   @Type(() => AddressDto)
   address?: AddressDto;
+
+  @IsString()
+  @IsOptional()
+  timezone?: string;
 }

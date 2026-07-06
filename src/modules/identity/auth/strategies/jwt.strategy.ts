@@ -15,7 +15,6 @@ const cookieExtractor = (req: Request): string | null => {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  
   constructor(
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
@@ -32,11 +31,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException();
     }
+    if (!user.isActive) {
+      throw new UnauthorizedException('User account is suspended');
+    }
     // PBAC relies on user object having profiles attached.
     // Ensure we don't expose sensitive info in context
     const { passwordHash, ...result } = user;
     return {
       ...result,
+      avatarUrl: user.avatarMedia?.storageUrl || null,
       hasPassword: passwordHash !== null,
     };
   }

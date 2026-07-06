@@ -2,15 +2,48 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 
 const PET_KEYWORDS = [
-  'dog', 'cat', 'puppy', 'kitten', 'pet', 'bird', 'fish', 
-  'hamster', 'rabbit', 'canine', 'feline', 'collar', 'aquarium', 'chameleon',
-  'guinea', 'mouse', 'parrot', 'canary'
+  'dog',
+  'cat',
+  'puppy',
+  'kitten',
+  'pet',
+  'bird',
+  'fish',
+  'hamster',
+  'rabbit',
+  'canine',
+  'feline',
+  'collar',
+  'aquarium',
+  'chameleon',
+  'guinea',
+  'mouse',
+  'parrot',
+  'canary',
 ];
 
 const LIVESTOCK_KEYWORDS = [
-  'cow', 'goat', 'sheep', 'pig', 'chicken', 'poultry', 'horse', 
-  'cattle', 'livestock', 'farm', 'bull', 'lamb', 'feed', 'pasture',
-  'bullock', 'hen', 'rooster', 'sow', 'swine', 'calf', 'heifer'
+  'cow',
+  'goat',
+  'sheep',
+  'pig',
+  'chicken',
+  'poultry',
+  'horse',
+  'cattle',
+  'livestock',
+  'farm',
+  'bull',
+  'lamb',
+  'feed',
+  'pasture',
+  'bullock',
+  'hen',
+  'rooster',
+  'sow',
+  'swine',
+  'calf',
+  'heifer',
 ];
 
 @Injectable()
@@ -20,12 +53,20 @@ export class SearchService {
   async getRecentOrFeatured() {
     const [vets, listings] = await Promise.all([
       this.prisma.vetProfile.findMany({
-        where: { status: 'APPROVED' },
+        where: { status: 'APPROVED', isActive: true },
         take: 4,
         orderBy: { rating: 'desc' },
-        include: { user: true },
+        include: {
+          user: {
+            include: { avatarMedia: true },
+          },
+        },
       }),
       this.prisma.vendorProduct.findMany({
+        where: {
+          isActive: true,
+          vendor: { isActive: true },
+        },
         take: 6,
         include: { product: true },
       }),
@@ -39,6 +80,7 @@ export class SearchService {
       this.prisma.vetProfile.findMany({
         where: {
           status: 'APPROVED',
+          isActive: true,
           OR: [
             { bio: { contains: query, mode: 'insensitive' } },
             { user: { firstName: { contains: query, mode: 'insensitive' } } },
@@ -46,13 +88,23 @@ export class SearchService {
           ],
         },
         take: 10,
-        include: { user: true },
+        include: {
+          user: {
+            include: { avatarMedia: true },
+          },
+        },
       }),
       this.prisma.vendorProduct.findMany({
         where: {
+          isActive: true,
+          vendor: { isActive: true },
           OR: [
             { product: { name: { contains: query, mode: 'insensitive' } } },
-            { product: { description: { contains: query, mode: 'insensitive' } } },
+            {
+              product: {
+                description: { contains: query, mode: 'insensitive' },
+              },
+            },
           ],
         },
         take: 10,
@@ -69,8 +121,8 @@ export class SearchService {
       name: `Dr. ${vet.user.firstName} ${vet.user.lastName}`,
       category: 'vets',
       rating: vet.rating || 0,
-      image: vet.user.avatarUrl || undefined,
-      subtitle: vet.specialization,
+      image: vet.user.avatarMedia?.storageUrl || undefined,
+      subtitle: vet.specializations[0] || 'GENERAL_PRACTICE',
       consultations: String(vet.totalConsults || 0),
     }));
 
@@ -82,10 +134,13 @@ export class SearchService {
       const desc = (listing.product.description || '').toLowerCase();
       const textBlock = `${name} ${desc}`;
 
-      const isLivestock = LIVESTOCK_KEYWORDS.some((kw) => textBlock.includes(kw));
+      const isLivestock = LIVESTOCK_KEYWORDS.some((kw) =>
+        textBlock.includes(kw),
+      );
 
-      const images = (listing.attributes as any)?.images;
-      const imageUrl = Array.isArray(images) && images.length > 0 ? images[0] : undefined;
+      const images = listing.attributes?.images;
+      const imageUrl =
+        Array.isArray(images) && images.length > 0 ? images[0] : undefined;
 
       const formattedProduct = {
         id: listing.id,

@@ -1,22 +1,31 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { ConsultationsService } from '../consultations/consultations.service';
 import { VetSpecialization } from '@prisma/client';
 import { generateSlug, uniqueSlug } from '../../../../common/utils/slug';
+import { getOrCreateMediaFromUrl } from '../../../../common/utils/media';
+import { CloudinaryService } from '../../../cloudinary/cloudinary.service';
 
 @Injectable()
 export class VetsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   async getVetStats(vetProfileId: string) {
     const vetProfile = await this.prisma.vetProfile.findUnique({
       where: { id: vetProfileId },
     });
-    
+
     if (!vetProfile) {
       throw new NotFoundException('Vet profile not found');
     }
-    
+
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
@@ -50,56 +59,62 @@ export class VetsService {
     });
     const averageRating = reviews._avg.rating || vetProfile?.rating || 0;
 
-    const earningsSum = await this.prisma.vetEarning.aggregate({
-      where: {
-        vetId: vetProfileId,
-        status: 'SETTLED',
-      },
-      _sum: {
-        netAmount: true,
-      },
+    const userBalance = await this.prisma.userBalance.findUnique({
+      where: { userId: vetProfile.userId },
     });
-    const totalEarnings = earningsSum._sum.netAmount ? Number(earningsSum._sum.netAmount) : 0;
+    const totalEarnings = userBalance ? Number(userBalance.totalEarned) : 0;
 
-
-
-    // Today's earnings
-    const todayEarningsSum = await this.prisma.vetEarning.aggregate({
+    // Today's earnings (ledger credits)
+    const todayEarningsSum = await this.prisma.ledgerEntry.aggregate({
       where: {
-        vetId: vetProfileId,
-        status: 'SETTLED',
-        settledAt: {
+        accountId: vetProfile.userId,
+        accountType: 'VET_BALANCE',
+        type: 'CREDIT',
+        createdAt: {
           gte: todayStart,
           lte: todayEnd,
         },
       },
       _sum: {
-        netAmount: true,
+        amount: true,
       },
     });
-    const todayEarnings = todayEarningsSum._sum.netAmount ? Number(todayEarningsSum._sum.netAmount) : 0;
+    const todayEarnings = todayEarningsSum._sum.amount
+      ? Number(todayEarningsSum._sum.amount)
+      : 0;
 
     // Current month boundaries
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
-    const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+    const endOfMonth = new Date(
+      startOfMonth.getFullYear(),
+      startOfMonth.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
 
-    // Monthly earnings
-    const monthlyEarningsSum = await this.prisma.vetEarning.aggregate({
+    // Monthly earnings (ledger credits)
+    const monthlyEarningsSum = await this.prisma.ledgerEntry.aggregate({
       where: {
-        vetId: vetProfileId,
-        status: 'SETTLED',
-        settledAt: {
+        accountId: vetProfile.userId,
+        accountType: 'VET_BALANCE',
+        type: 'CREDIT',
+        createdAt: {
           gte: startOfMonth,
           lte: endOfMonth,
         },
       },
       _sum: {
-        netAmount: true,
+        amount: true,
       },
     });
-    const monthlyEarnings = monthlyEarningsSum._sum.netAmount ? Number(monthlyEarningsSum._sum.netAmount) : 0;
+    const monthlyEarnings = monthlyEarningsSum._sum.amount
+      ? Number(monthlyEarningsSum._sum.amount)
+      : 0;
 
     const completedConsultations = await this.prisma.consultation.findMany({
       where: {
@@ -132,8 +147,7 @@ export class VetsService {
       pendingReviews,
     };
   }
-  
-  
+
   async getProfile(user) {
     if (!user.vetProfile) {
       throw new ForbiddenException('Vet profile required');
@@ -141,18 +155,16 @@ export class VetsService {
     const { vetProfile, ...userWithoutProfile } = user;
 
     return {
-      profile: {
-        ...vetProfile,
-        user: {
-          ...userWithoutProfile,
-          name: `${userWithoutProfile.firstName} ${userWithoutProfile.lastName}`,
-          image: vetProfile.avatarUrl || userWithoutProfile.avatarUrl || undefined,
-        },
+      ...vetProfile,
+      specialization: vetProfile.specializations[0] || 'GENERAL_PRACTICE',
+      user: {
+        ...user,
+        name: `${user.firstName} ${user.lastName}`,
+        image: vetProfile.avatarMedia?.storageUrl || undefined,
       },
     };
   }
 
-  
   async listVets(
     specialization?: string,
     minRating?: string,
@@ -163,12 +175,13 @@ export class VetsService {
   ) {
     const where: any = {
       status: 'APPROVED',
+      isActive: true,
       // Exclude the requesting user's own profile so vets don't see themselves in the directory
       ...(excludeVetProfileId && { id: { not: excludeVetProfileId } }),
     };
 
     if (specialization) {
-      where.specialization = specialization as VetSpecialization;
+      where.specializations = { has: specialization as VetSpecialization };
     }
 
     if (availableOnly === 'true') {
@@ -186,14 +199,20 @@ export class VetsService {
     const vets = await this.prisma.vetProfile.findMany({
       where,
       include: {
-        user: true,
+        avatarMedia: true,
+        user: {
+          include: {
+            avatarMedia: true,
+          },
+        },
       },
     });
 
     return vets.map((vet) => ({
       id: vet.id,
       slug: vet.slug || vet.id,
-      specialization: vet.specialization,
+      specializations: vet.specializations,
+      specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
       consultationFee: vet.consultationFee ? Number(vet.consultationFee) : null,
       rating: vet.rating,
       totalConsults: vet.totalConsults,
@@ -201,23 +220,33 @@ export class VetsService {
       isAvailable: vet.isAvailable,
       user: {
         name: `${vet.user.firstName} ${vet.user.lastName}`,
-        image: vet.avatarUrl || vet.user.avatarUrl,
+        image: vet.avatarMedia?.storageUrl || null,
       },
     }));
   }
-  
-  async getVetProfile(idOrSlug: string){
+
+  async getVetProfile(idOrSlug: string) {
     const vet = await this.prisma.vetProfile.findFirst({
       where: {
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
         status: 'APPROVED',
+        isActive: true,
       },
       include: {
-        user: true,
+        avatarMedia: true,
+        user: {
+          include: {
+            avatarMedia: true,
+          },
+        },
         reviews: {
           where: { status: 'PUBLISHED' },
           include: {
-            reviewer: true,
+            reviewer: {
+              include: {
+                avatarMedia: true,
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -231,7 +260,8 @@ export class VetsService {
     return {
       id: vet.id,
       slug: vet.slug || vet.id,
-      specialization: vet.specialization,
+      specializations: vet.specializations,
+      specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
       licenseNumber: vet.licenseNumber,
       experience: vet.experience,
       consultationFee: vet.consultationFee ? Number(vet.consultationFee) : 0,
@@ -244,7 +274,7 @@ export class VetsService {
       user: {
         name: `${vet.user.firstName} ${vet.user.lastName}`,
         email: vet.user.email,
-        image: vet.avatarUrl || vet.user.avatarUrl,
+        image: vet.avatarMedia?.storageUrl || null,
       },
       reviews: vet.reviews.map((r) => ({
         id: r.id,
@@ -253,13 +283,17 @@ export class VetsService {
         createdAt: r.createdAt.toISOString(),
         user: {
           name: `${r.reviewer.firstName} ${r.reviewer.lastName}`,
-          image: r.reviewer.avatarUrl,
+          image: r.reviewer.avatarMedia?.storageUrl || null,
         },
       })),
     };
   }
-  
-  async getMonthAvailability(idOrSlug: string, yearStr: string, monthStr: string){
+
+  async getMonthAvailability(
+    idOrSlug: string,
+    yearStr: string,
+    monthStr: string,
+  ) {
     const vet = await this.prisma.vetProfile.findFirst({
       where: {
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -350,7 +384,9 @@ export class VetsService {
 
       let availableSlotsCount = 0;
       if (isDayAvailable && !isTimeOff) {
-        const templates = weeklyAvailability.filter((a) => a.dayOfWeek === dayOfWeek);
+        const templates = weeklyAvailability.filter(
+          (a) => a.dayOfWeek === dayOfWeek,
+        );
         const rawSlots: string[] = [];
         for (const temp of templates) {
           const startHour = parseInt(temp.startTime.split(':')[0]);
@@ -370,7 +406,10 @@ export class VetsService {
             const [slotHour, slotMin] = slot.split(':').map(Number);
             const currentHour = now.getHours();
             const currentMin = now.getMinutes();
-            if (slotHour < currentHour || (slotHour === currentHour && slotMin <= currentMin)) {
+            if (
+              slotHour < currentHour ||
+              (slotHour === currentHour && slotMin <= currentMin)
+            ) {
               return false;
             }
           }
@@ -385,8 +424,8 @@ export class VetsService {
 
     return { blockedDates };
   }
-  
-  async getDailyAvailability(idOrSlug: string, dateStr: string){
+
+  async getDailyAvailability(idOrSlug: string, dateStr: string) {
     const vet = await this.prisma.vetProfile.findFirst({
       where: {
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -483,7 +522,10 @@ export class VetsService {
         const [slotHour, slotMin] = slot.split(':').map(Number);
         const currentHour = now.getHours();
         const currentMin = now.getMinutes();
-        if (slotHour < currentHour || (slotHour === currentHour && slotMin <= currentMin)) {
+        if (
+          slotHour < currentHour ||
+          (slotHour === currentHour && slotMin <= currentMin)
+        ) {
           return false;
         }
       }
@@ -492,7 +534,7 @@ export class VetsService {
 
     return { slots: availableSlots };
   }
-  
+
   async updateVetProfile(vetProfileId: string, userId: string, dto: any) {
     const vetProfile = await this.prisma.vetProfile.findUnique({
       where: { id: vetProfileId },
@@ -510,81 +552,159 @@ export class VetsService {
     const newStatus =
       vetProfile.status === 'REJECTED' ? 'PENDING' : vetProfile.status;
 
-    return this.prisma.$transaction(async (tx) => {
-      let firstName: string | undefined;
-      let lastName: string | undefined;
-      if (dto.name) {
-        const parts = dto.name.trim().split(/\s+/);
-        firstName = parts[0] || '';
-        lastName = parts.slice(1).join(' ') || '';
-      }
+    let resolvedMedia: any = null;
 
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          ...(firstName !== undefined && { firstName }),
-          ...(lastName !== undefined && { lastName }),
-        },
-      });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        let firstName: string | undefined;
+        let lastName: string | undefined;
+        if (dto.name) {
+          const parts = dto.name.trim().split(/\s+/);
+          firstName = parts[0] || '';
+          lastName = parts.slice(1).join(' ') || '';
+        }
 
-      // Regenerate slug if the name changed or the profile has no slug yet
-      let slug = vetProfile.slug;
-      const effectiveFirstName = firstName ?? vetProfile.user.firstName;
-      const effectiveLastName = lastName ?? vetProfile.user.lastName;
-      const newName = `${effectiveFirstName} ${effectiveLastName}`;
-      const existingSlugName = `${vetProfile.user.firstName} ${vetProfile.user.lastName}`;
-
-      if (!slug || newName !== existingSlugName) {
-        const baseSlug = generateSlug(newName);
-        slug = await uniqueSlug(baseSlug, async (s) => {
-          const existing = await tx.vetProfile.findFirst({
-            where: { slug: s, id: { not: vetProfileId } },
-          });
-          return !!existing;
-        });
-      }
-
-      const updatedProfile = await tx.vetProfile.update({
-        where: { id: vetProfileId },
-        data: {
-          specialization: dto.specialization,
-          licenseNumber: dto.licenseNumber,
-          experience: dto.experience,
-          consultationFee: dto.consultationFee,
-          emergencyFee: dto.emergencyFee,
-          bio: dto.bio,
-          qualifications: dto.qualifications,
-          languages: dto.languages,
-          avatarUrl: dto.image,
-          status: newStatus,
-          rejectionReason: newStatus === 'PENDING' ? null : undefined,
-          slug,
-        },
-      });
-
-      if (vetProfile.status === 'REJECTED' && newStatus === 'PENDING') {
-        await tx.outboxEvent.create({
+        await tx.user.update({
+          where: { id: userId },
           data: {
-            type: 'VET_PROFILE_RESUBMITTED',
-            payload: {
-              userId,
-              vetProfileId,
-            },
+            ...(firstName !== undefined && { firstName }),
+            ...(lastName !== undefined && { lastName }),
           },
         });
-      }
 
-      return { ...updatedProfile, slug };
-    });
+        // Regenerate slug if the name changed or the profile has no slug yet
+        let slug = vetProfile.slug;
+        const effectiveFirstName = firstName ?? vetProfile.user.firstName;
+        const effectiveLastName = lastName ?? vetProfile.user.lastName;
+        const newName = `${effectiveFirstName} ${effectiveLastName}`;
+        const existingSlugName = `${vetProfile.user.firstName} ${vetProfile.user.lastName}`;
+
+        if (!slug || newName !== existingSlugName) {
+          const baseSlug = generateSlug(newName);
+          slug = await uniqueSlug(baseSlug, async (s) => {
+            const existing = await tx.vetProfile.findFirst({
+              where: { slug: s, id: { not: vetProfileId } },
+            });
+            return !!existing;
+          });
+        }
+
+        let avatarMediaIdUpdate: any = undefined;
+        if (dto.image !== undefined) {
+          if (!dto.image || dto.image === '') {
+            if (vetProfile.avatarMediaId) {
+              const oldMedia = await tx.media.findUnique({
+                where: { id: vetProfile.avatarMediaId },
+              });
+              if (oldMedia && oldMedia.status !== 'DELETED') {
+                await tx.media.update({
+                  where: { id: vetProfile.avatarMediaId },
+                  data: {
+                    status: 'DELETED',
+                    deletedAt: new Date(),
+                  },
+                });
+
+                await tx.outboxEvent.create({
+                  data: {
+                    type: 'MEDIA_DELETED',
+                    payload: {
+                      mediaId: oldMedia.id,
+                      publicId: oldMedia.publicId,
+                    },
+                  },
+                });
+              }
+            }
+            avatarMediaIdUpdate = null;
+          } else {
+            resolvedMedia = await getOrCreateMediaFromUrl(
+              tx,
+              dto.image,
+              'VET',
+              vetProfileId,
+              'PROFILE_IMAGE',
+              userId,
+            );
+            avatarMediaIdUpdate = resolvedMedia.mediaId;
+
+            // If the vet already had a profile avatar and it changed, soft-delete the old one
+            if (
+              vetProfile.avatarMediaId &&
+              vetProfile.avatarMediaId !== resolvedMedia.mediaId
+            ) {
+              const oldMedia = await tx.media.findUnique({
+                where: { id: vetProfile.avatarMediaId },
+              });
+              if (oldMedia && oldMedia.status !== 'DELETED') {
+                await tx.media.update({
+                  where: { id: vetProfile.avatarMediaId },
+                  data: {
+                    status: 'DELETED',
+                    deletedAt: new Date(),
+                  },
+                });
+
+                await tx.outboxEvent.create({
+                  data: {
+                    type: 'MEDIA_DELETED',
+                    payload: {
+                      mediaId: oldMedia.id,
+                      publicId: oldMedia.publicId,
+                    },
+                  },
+                });
+              }
+            }
+          }
+        }
+
+        const updatedProfile = await tx.vetProfile.update({
+          where: { id: vetProfileId },
+          data: {
+            specializations: dto.specializations,
+            licenseNumber: dto.licenseNumber,
+            experience: dto.experience,
+            consultationFee: dto.consultationFee,
+            emergencyFee: dto.emergencyFee,
+            bio: dto.bio,
+            qualifications: dto.qualifications,
+            languages: dto.languages,
+            ...(avatarMediaIdUpdate !== undefined && {
+              avatarMediaId: avatarMediaIdUpdate,
+            }),
+            status: newStatus,
+            rejectionReason: newStatus === 'PENDING' ? null : undefined,
+            slug,
+          },
+        });
+
+        if (vetProfile.status === 'REJECTED' && newStatus === 'PENDING') {
+          await tx.outboxEvent.create({
+            data: {
+              type: 'VET_PROFILE_RESUBMITTED',
+              payload: {
+                userId,
+                vetProfileId,
+              },
+            },
+          });
+        }
+
+        return { ...updatedProfile, slug };
+      });
+    } catch (error) {
+      if (resolvedMedia?.isNew && resolvedMedia?.publicId) {
+        await this.cloudinaryService.deleteAsset(resolvedMedia.publicId);
+      }
+      throw error;
+    }
   }
 
   async getVetAvailability(vetProfileId: string) {
     const availability = await this.prisma.vetAvailability.findMany({
       where: { vetId: vetProfileId },
-      orderBy: [
-        { dayOfWeek: 'asc' },
-        { startTime: 'asc' }
-      ]
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
     });
     return { availability };
   }
@@ -594,10 +714,10 @@ export class VetsService {
       await tx.vetAvailability.deleteMany({
         where: { vetId: vetProfileId },
       });
-      
+
       if (slots && slots.length > 0) {
         await tx.vetAvailability.createMany({
-          data: slots.map(s => ({
+          data: slots.map((s) => ({
             vetId: vetProfileId,
             dayOfWeek: s.dayOfWeek,
             startTime: s.startTime,
@@ -606,7 +726,7 @@ export class VetsService {
           })),
         });
       }
-      
+
       return { success: true };
     });
   }

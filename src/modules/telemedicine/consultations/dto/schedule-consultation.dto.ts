@@ -1,4 +1,10 @@
-import { IsDateString, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { ConsultationMode } from '@prisma/client';
 
 export class ScheduleConsultationDto {
@@ -17,4 +23,23 @@ export class ScheduleConsultationDto {
   @IsDateString()
   @IsOptional()
   scheduledAt?: string;
+
+  @IsString()
+  @IsOptional()
+  slotId?: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+
+  @IsString()
+  @IsOptional()
+  symptoms?: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @IsOptional()
+  files?: string[];
 }

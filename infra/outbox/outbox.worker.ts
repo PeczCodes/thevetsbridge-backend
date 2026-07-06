@@ -1,9 +1,12 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { PaymentEventEmitter } from '../../src/modules/payments/events/payment-event.emitter';
 import { NotificationsQueueService } from '../queues/notifications-queue/notifications-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { STORAGE_ADAPTER, StorageAdapter } from '../../src/modules/media/ports/storage-adapter.interface';
+import { RedisService } from '../redis/redis.service';
+import { EncryptionService } from '../security/encryption.service';
 
 @Processor('outbox-events')
 export class OutboxWorker extends WorkerHost {
@@ -14,6 +17,10 @@ export class OutboxWorker extends WorkerHost {
     private readonly paymentEventEmitter: PaymentEventEmitter,
     private readonly notificationsQueue: NotificationsQueueService,
     private readonly prisma: PrismaService,
+    @Inject(STORAGE_ADAPTER) private readonly storageAdapter: any,
+    private readonly redisService: RedisService,
+    @InjectQueue('payout-queue') private readonly payoutQueue: Queue,
+    private readonly encryptionService: EncryptionService,
   ) {
     super();
   }
@@ -22,6 +29,15 @@ export class OutboxWorker extends WorkerHost {
     const { eventId, type, payload } = job.data;
     
     this.logger.log(`[Queue Worker] Processing outbox event job ${job.id} | Event ID: ${eventId}`);
+
+    const redisKey = `outbox:processed:${eventId}`;
+    if (this.redisService.isAvailable()) {
+      const isProcessed = await this.redisService.getClient().get(redisKey);
+      if (isProcessed) {
+        this.logger.log(`[Queue Worker] Event ${eventId} has already been processed (idempotency check). Skipping.`);
+        return { skipped: true, reason: 'Already processed' };
+      }
+    }
     
     switch (type) {
       case 'USER_REGISTERED': {
@@ -42,6 +58,8 @@ export class OutboxWorker extends WorkerHost {
       }
         
       case 'ORDER_PLACED': {
+        // NOTE: We do NOT send the buyer a confirmation email here — payment has not been made yet.
+        // The ORDER_CONFIRMED_BUYER email is sent in PAYMENT_COMPLETED, after Paystack verifies the payment.
         this.logger.log(`[Queue Worker] [ORDER_PLACED] Querying details for Order ID: ${payload.orderId}`);
         const order = await this.prisma.order.findUnique({
           where: { id: payload.orderId },
@@ -62,31 +80,7 @@ export class OutboxWorker extends WorkerHost {
         });
         
         if (order) {
-          // 1. Email to Buyer
-          const itemsList = order.items.map(item => ({
-            name: item.vendorProduct.product.name,
-            quantity: item.quantity,
-            price: Number(item.unitPrice),
-          }));
-          
-          await this.notificationsQueue.queueEmail(
-            order.user.email,
-            'Your VetsBridge Order Receipt 📦',
-            'ORDER_CONFIRMED_BUYER',
-            {
-              orderId: order.id,
-              buyerName: `${order.user.firstName} ${order.user.lastName}`,
-              items: itemsList,
-              subtotal: Number(order.subtotal),
-              shippingCost: Number(order.shippingCost),
-              totalAmount: Number(order.totalAmount),
-              shippingAddress: order.shippingAddress 
-                ? `${order.shippingAddress.street1}, ${order.shippingAddress.city}, ${order.shippingAddress.state}`
-                : 'N/A',
-            }
-          );
-
-          // 2. Email to Vendors (group items by vendor ID)
+          // Email to Vendors only (group items by vendor ID)
           const vendorMap = new Map<string, typeof order.items>();
           for (const item of order.items) {
             const vendorId = item.vendorProduct.vendorId;
@@ -281,16 +275,19 @@ export class OutboxWorker extends WorkerHost {
       }
 
       case 'USER_PASSWORD_RESET': {
-        this.logger.log(`[Queue Worker] [USER_PASSWORD_RESET] Queuing password reset notification for User ID ${payload.userId}`);
+        this.logger.log(`[Queue Worker] [USER_PASSWORD_RESET] Decrypting token and queuing password reset email for User ID ${payload.userId}`);
         const user = await this.prisma.user.findUnique({ where: { id: payload.userId } });
         if (user) {
+          const rawToken = payload.encryptedToken 
+            ? this.encryptionService.decrypt(payload.encryptedToken) 
+            : payload.token; // Fallback to plain token if admin-initiated / legacy
           await this.notificationsQueue.queueEmail(
             user.email,
             'VetsBridge Account Password Reset 🔐',
             'USER_PASSWORD_RESET',
             {
               name: `${user.firstName} ${user.lastName}`,
-              newPassword: payload.newPassword,
+              token: rawToken,
             }
           );
         }
@@ -318,13 +315,90 @@ export class OutboxWorker extends WorkerHost {
         this.logger.log(`[Queue Worker] [PRESCRIPTION_CREATED] Generating digital prescription download link for Animal ID: ${payload.animalId}`);
         break;
 
-      case 'PAYMENT_COMPLETED':
+      case 'PAYMENT_COMPLETED': {
         this.logger.log(`[Queue Worker] [PAYMENT_COMPLETED] Payment verified server-side. Reference: ${payload.reference}, Amount: ${payload.amount}`);
         this.paymentEventEmitter.emit('payment.completed', payload);
+
+        // Send ORDER_CONFIRMED_BUYER email now that payment is verified
+        if (payload.purpose === 'ORDER' && payload.orderId) {
+          this.logger.log(`[Queue Worker] [PAYMENT_COMPLETED] Queuing order confirmation email for Order ID: ${payload.orderId}`);
+          const paidOrder = await this.prisma.order.findUnique({
+            where: { id: payload.orderId },
+            include: {
+              user: true,
+              shippingAddress: true,
+              items: {
+                include: {
+                  vendorProduct: {
+                    include: { product: true }
+                  }
+                }
+              }
+            }
+          });
+
+          if (paidOrder) {
+            const itemsList = paidOrder.items.map(item => ({
+              name: item.vendorProduct.product.name,
+              quantity: item.quantity,
+              price: Number(item.unitPrice),
+            }));
+
+            await this.notificationsQueue.queueEmail(
+              paidOrder.user.email,
+              'Your VetsBridge Order is Confirmed! 📦',
+              'ORDER_CONFIRMED_BUYER',
+              {
+                orderId: paidOrder.id,
+                buyerName: `${paidOrder.user.firstName} ${paidOrder.user.lastName}`,
+                items: itemsList,
+                subtotal: Number(paidOrder.subtotal),
+                shippingCost: Number(paidOrder.shippingCost),
+                totalAmount: Number(paidOrder.totalAmount),
+                shippingAddress: paidOrder.shippingAddress
+                  ? `${paidOrder.shippingAddress.street1}, ${paidOrder.shippingAddress.city}, ${paidOrder.shippingAddress.state}`
+                  : 'N/A',
+              }
+            );
+          }
+        }
+        break;
+      }
+
+      case 'WITHDRAWAL_REQUESTED': {
+        this.logger.log(`[Queue Worker] [WITHDRAWAL_REQUESTED] Queueing background payout for Transaction ID: ${payload.transactionId}`);
+        await this.payoutQueue.add(
+          'process-payout',
+          {
+            transactionId: payload.transactionId,
+          },
+          {
+            jobId: payload.transactionId, // Deduplicate queue jobs
+            attempts: 5,
+            backoff: {
+              type: 'exponential',
+              delay: 5000,
+            },
+          }
+        );
+        break;
+      }
+
+      case 'MEDIA_DELETED':
+        this.logger.log(`[Queue Worker] [MEDIA_DELETED] Deleting asset from storage: ${payload.publicId}`);
+        try {
+          await this.storageAdapter.deleteAsset(payload.publicId);
+        } catch (err: any) {
+          this.logger.error(`Failed to delete asset ${payload.publicId}: ${err.message}`);
+        }
         break;
         
       default:
         this.logger.log(`[Queue Worker] [DISPATCH] Event type "${type}" successfully dispatched. Payload: ${JSON.stringify(payload)}`);
+    }
+    
+    if (this.redisService.isAvailable()) {
+      await this.redisService.getClient().set(redisKey, 'true', 'EX', 7 * 24 * 60 * 60); // 7 days TTL
     }
     
     return { dispatched: true, eventId };

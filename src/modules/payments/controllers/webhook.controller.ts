@@ -18,36 +18,41 @@ import { Public } from '../../identity/auth/decorators/public.decorator';
 export class WebhookController {
   constructor(private readonly webhookService: WebhookService) {}
 
-  
-  @Get('paystack')
-  async works(){
-    return 'works'
-  }
-  
-  
   @Post('paystack')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Paystack Webhook Receiver',
-    description: 'Endpoint to receive transaction notifications (e.g. charge.success) from Paystack. Validates payload hashes and enqueues background processing.',
+    description:
+      'Endpoint to receive transaction notifications (e.g. charge.success) from Paystack. Validates payload hashes and enqueues background processing.',
   })
-  @ApiResponse({ status: 200, description: 'Webhook enqueued or duplicate ignored.' })
-  @ApiResponse({ status: 401, description: 'Invalid or missing signature header.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Webhook enqueued or duplicate ignored.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing signature header.',
+  })
   async handlePaystackWebhook(
     @Headers('x-paystack-signature') signature: string,
-    @Req() req: any
+    @Req() req: any,
   ): Promise<string> {
     if (!signature) {
       throw new UnauthorizedException('Missing signature header');
     }
 
     // In NestJS, when rawBody is enabled in NestFactory, req.rawBody is a Buffer containing the raw request body.
-    const rawBodyBuffer = (req as any).rawBody;
-    const rawBody = rawBodyBuffer ? rawBodyBuffer.toString('utf8') : JSON.stringify(req.body);
+    const rawBodyBuffer = req.rawBody;
+    const rawBody = rawBodyBuffer
+      ? rawBodyBuffer.toString('utf8')
+      : JSON.stringify(req.body);
 
-    await this.webhookService.processPaystackWebhook(signature, rawBody, req.body);
+    await this.webhookService.processPaystackWebhook(
+      signature,
+      rawBody,
+      req.body,
+    );
 
     return 'OK';
   }
 }
-

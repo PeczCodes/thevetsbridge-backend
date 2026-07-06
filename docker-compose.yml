@@ -18,6 +18,7 @@ services:
     container_name: vetsbridge-redis
     ports:
       - '6379:6379'
+    command: redis-server --requirepass R2D3S
     volumes:
       - redis-data:/data
     restart: unless-stopped

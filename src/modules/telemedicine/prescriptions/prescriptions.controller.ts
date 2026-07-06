@@ -17,6 +17,10 @@ export class PrescriptionsController {
     @CurrentUser() user: any,
     @Body() dto: IssuePrescriptionDto,
   ) {
-    return this.prescriptionsService.issuePrescription(user.vetProfile.id, consultationId, dto);
+    return this.prescriptionsService.issuePrescription(
+      user.vetProfile.id,
+      consultationId,
+      dto,
+    );
   }
 }

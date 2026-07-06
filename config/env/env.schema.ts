@@ -5,19 +5,15 @@ export const envSchema = z.object({
   // Application
   // ==============================
   NODE_ENV: z.enum(['development', 'production', 'test']),
-  PORT: z.coerce.number().default(3005),
+  PORT: z.coerce.number(),
   APP_NAME: z.string(),
-
-  // ==============================
-  // Database
-  // ==============================
-  DATABASE_URL: z.string().url(),
-
+  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+  
   // ==============================
   // Redis
   // ==============================
   REDIS_HOST: z.string(),
-  REDIS_PORT: z.coerce.number().default(6379),
+  REDIS_PORT: z.coerce.number(),
   REDIS_PASSWORD: z.string().optional().or(z.literal('')),
   REDIS_DB: z.coerce.number().default(0),
 
@@ -79,4 +75,29 @@ export const envSchema = z.object({
   LIVEKIT_API_KEY: z.string().default('devkey'),
   LIVEKIT_API_SECRET: z.string().default('secret'),
   LIVEKIT_URL: z.string().default('ws://localhost:7880'),
+
+  // ==============================
+  // Circuit Breaker (Opossum)
+  // ==============================
+  CIRCUIT_BREAKER_TIMEOUT: z.coerce.number().optional().default(30000),
+  CIRCUIT_BREAKER_RESET_TIMEOUT: z.coerce.number().optional().default(30000),
+  CIRCUIT_BREAKER_ERROR_THRESHOLD: z.coerce.number().optional().default(50),
+  CIRCUIT_BREAKER_ROLLING_BUCKETS: z.coerce.number().optional().default(10),
+  CIRCUIT_BREAKER_ROLLING_TIMEOUT: z.coerce.number().optional().default(10000),
+
+  // ==============================
+  // Telemedicine Lifecycle
+  // ==============================
+  TELEMEDICINE_NO_SHOW_GRACE_MINUTES: z.coerce.number().optional().default(15),
+  TELEMEDICINE_HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().optional().default(15),
+  TELEMEDICINE_HEARTBEAT_TIMEOUT_SECONDS: z.coerce.number().optional().default(30),
+  TELEMEDICINE_RECONNECT_TIMEOUT_SECONDS: z.coerce.number().optional().default(300),
+  TELEMEDICINE_DISPUTE_WINDOW_HOURS: z.coerce.number().optional().default(24),
+
+  // ==============================
+  // Password Reset & Encryption
+  // ==============================
+  PASSWORD_RESET_EXPIRY_MINUTES: z.coerce.number().optional().default(30),
+  PASSWORD_RESET_BASE_URL: z.string().url().optional().default('https://app.vetsbridge.com/reset-password'),
+  ENCRYPTION_SECRET: z.string().optional().or(z.literal('')),
 });
