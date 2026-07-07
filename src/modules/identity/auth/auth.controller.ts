@@ -37,20 +37,28 @@ export class AuthController {
   ) {}
 
   private setRefreshTokenCookie(res: express.Response, token: string) {
+    const nodeEnv = this.configService.get<string>('app.env') ?? 'development';
+    const isProd = nodeEnv === 'production';
+
     res.cookie('refreshToken', token, {
       httpOnly: true,
-      sameSite: 'none',
+      sameSite: isProd ? 'strict' : 'none',
       secure: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      domain: isProd ? '.vetsbridge.org' : undefined,
     });
   }
 
   private setAccessTokenCookie(res: express.Response, token: string) {
+    const nodeEnv = this.configService.get<string>('app.env') ?? 'development';
+    const isProd = nodeEnv === 'production';
+
     res.cookie('accessToken', token, {
       httpOnly: true,
-      sameSite: 'none',
+      sameSite: isProd ? 'strict' : 'none',
       secure: true,
       maxAge: 15 * 60 * 1000,
+      domain: isProd ? '.vetsbridge.org' : undefined,
     });
   }
 
@@ -148,12 +156,14 @@ export class AuthController {
       httpOnly: true,
       sameSite: isProd ? 'strict' : 'none',
       secure: true,
+      domain: isProd ? '.vetsbridge.org' : undefined,
     });
 
     res.clearCookie('refreshToken', {
       httpOnly: true,
       sameSite: isProd ? 'strict' : 'none',
       secure: true,
+      domain: isProd ? '.vetsbridge.org' : undefined,
     });
 
     return {
