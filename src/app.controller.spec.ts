@@ -15,8 +15,11 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return project metadata', () => {
+      const result = appController.getHello();
+      expect(result).toHaveProperty('name', 'VetsBridge API');
+      expect(result).toHaveProperty('status', 'healthy');
+      expect(result).toHaveProperty('docs', '/api/docs');
     });
   });
 });
