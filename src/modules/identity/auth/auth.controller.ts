@@ -37,22 +37,18 @@ export class AuthController {
   ) {}
 
   private setRefreshTokenCookie(res: express.Response, token: string) {
-    const nodeEnv = this.configService.get<string>('app.env') ?? 'development';
-    const isProd = nodeEnv === 'production';
     res.cookie('refreshToken', token, {
       httpOnly: true,
-      sameSite: isProd ? 'strict' : 'none',
+      sameSite: 'none',
       secure: true,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
   }
 
   private setAccessTokenCookie(res: express.Response, token: string) {
-    const nodeEnv = this.configService.get<string>('app.env') ?? 'development';
-    const isProd = nodeEnv === 'production';
     res.cookie('accessToken', token, {
       httpOnly: true,
-      sameSite: isProd ? 'strict' : 'none',
+      sameSite: 'none',
       secure: true,
       maxAge: 15 * 60 * 1000,
     });
