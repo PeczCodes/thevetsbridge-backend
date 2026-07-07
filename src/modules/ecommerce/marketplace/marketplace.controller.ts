@@ -15,7 +15,7 @@ import { RequireProfile } from '../../identity/auth/decorators/require-profile.d
 import { RequireProfileGuard } from '../../identity/auth/guards/require-profile.guard';
 import { Public } from '../../identity/auth/decorators/public.decorator';
 
-@Controller('ecommerce')
+@Controller('marketplace')
 export class MarketplaceController {
   constructor(private readonly marketplaceService: MarketplaceService) {}
 
