@@ -53,7 +53,9 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
     const isWorker = process.env.SERVICE_TYPE === 'worker' || process.env.IS_WORKER === 'true';
     try {
       this.logger.log('Attempting initial Redis connection...');
-      await this.client.connect();
+      if (this.client.status === 'wait') {
+        await this.client.connect();
+      }
       if (this.client.status === 'ready') {
         this.connectionStatus = 'connected';
       }
@@ -63,13 +65,13 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
         this.logger.error(`Redis unavailable during worker startup. Failing fast and exiting. Error: ${err.message}`);
         process.exit(1);
       } else {
-        this.logger.warn('Redis unavailable. Running without cache and Redis-backed features.');
+        this.logger.warn(`Redis unavailable. Running without cache and Redis-backed features. Error: ${err.message}`);
       }
     }
   }
 
   isAvailable(): boolean {
-    return this.connectionStatus === 'connected';
+    return this.client.status === 'ready';
   }
 
   getClient(): Redis {
