@@ -27,6 +27,11 @@ yarn-debug.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+
+#md files
+*.md
+!README.md
+
 # ==========================================
 # Runtime files
 # ==========================================
