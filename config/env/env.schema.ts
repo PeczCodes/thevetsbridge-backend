@@ -8,6 +8,7 @@ export const envSchema = z.object({
   PORT: z.coerce.number(),
   APP_NAME: z.string(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+  BYPASS_OUTBOX: z.string().optional().default('true'),
   
   // ==============================
   // Redis

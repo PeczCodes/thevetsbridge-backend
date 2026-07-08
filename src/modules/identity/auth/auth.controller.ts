@@ -37,7 +37,7 @@ export class AuthController {
   ) {}
 
   private setRefreshTokenCookie(res: express.Response, token: string) {
-    const nodeEnv = this.configService.get<string>('app.env') ?? 'development';
+    const nodeEnv = this.configService.getOrThrow<string>('app.env');
     const isProd = nodeEnv === 'production';
 
     res.cookie('refreshToken', token, {
@@ -50,7 +50,7 @@ export class AuthController {
   }
 
   private setAccessTokenCookie(res: express.Response, token: string) {
-    const nodeEnv = this.configService.get<string>('app.env') ?? 'development';
+    const nodeEnv = this.configService.getOrThrow<string>('app.env');
     const isProd = nodeEnv === 'production';
 
     res.cookie('accessToken', token, {

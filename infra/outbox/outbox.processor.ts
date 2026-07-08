@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { OutboxService } from './outbox.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class OutboxProcessor implements OnApplicationBootstrap, OnModuleDestroy {
@@ -7,9 +8,17 @@ export class OutboxProcessor implements OnApplicationBootstrap, OnModuleDestroy 
   private isProcessing = false;
   private pollingInterval: NodeJS.Timeout;
 
-  constructor(private readonly outboxService: OutboxService) {}
+  constructor(
+    private readonly outboxService: OutboxService,
+    private readonly configService: ConfigService,
+  ) {}
 
   onApplicationBootstrap() {
+    const bypass = this.configService.get<boolean>('app.bypassOutbox') ?? false;
+    if (bypass) {
+      this.logger.log('Transactional Outbox polling is disabled (bypassed).');
+      return;
+    }
     this.startPolling();
   }
 

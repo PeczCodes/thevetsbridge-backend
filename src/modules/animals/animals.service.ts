@@ -174,7 +174,7 @@ export class AnimalsService {
             dto.photoUrl,
             'ANIMAL',
             baseAnimal.id,
-            'ANIMAL_PHOTO',
+            'PROFILE_IMAGE',
             userId,
           );
           photoMediaId = resolvedMedia.mediaId;
@@ -421,7 +421,7 @@ export class AnimalsService {
               dto.photoUrl,
               'ANIMAL',
               animal.id,
-              'ANIMAL_PHOTO',
+              'PROFILE_IMAGE',
               currentUser.id,
             );
             photoMediaIdUpdate = resolvedMedia.mediaId;

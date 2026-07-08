@@ -17,7 +17,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     const clientSecret =
       configService.get<string>('google.oauth.clientSecret') || 'DISABLED';
     const callbackUrl =
-      configService.get<string>('google.oauth.callbackUrl') ||
+      configService.getOrThrow<string>('google.oauth.callbackUrl') ||
       'http://localhost/callback';
 
     super({
