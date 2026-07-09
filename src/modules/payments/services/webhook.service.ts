@@ -113,7 +113,8 @@ export class WebhookService {
           correlationId,
         },
         {
-          jobId: reference,
+          // BullMQ forbids colons in custom job IDs — sanitize the reference
+          jobId: reference.replace(/:/g, '-'),
           attempts: 3,
           backoff: {
             type: 'exponential',

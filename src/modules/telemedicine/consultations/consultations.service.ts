@@ -200,7 +200,7 @@ export class ConsultationsService implements OnModuleInit {
         await this.lifecycleQueue.add(
           'consultation-reminder-job',
           { consultationId, type: 'reminder', timing: t.label },
-          { delay, jobId: `reminder:${consultationId}:${t.label}` },
+          { delay, jobId: `reminder-${consultationId}-${t.label}` },
         );
       }
     }
@@ -213,7 +213,7 @@ export class ConsultationsService implements OnModuleInit {
       await this.lifecycleQueue.add(
         'consultation-no-show-job',
         { consultationId, type: 'no-show' },
-        { delay: noShowDelay, jobId: `no-show:${consultationId}` },
+        { delay: noShowDelay, jobId: `no-show-${consultationId}` },
       );
     }
   }
@@ -734,7 +734,7 @@ export class ConsultationsService implements OnModuleInit {
       { consultationId, userId, type: 'reconnect-timeout' },
       {
         delay: reconnectWindow * 1000,
-        jobId: `reconnect:${consultationId}:${userId}`,
+        jobId: `reconnect-${consultationId}-${userId}`,
       },
     );
 
@@ -865,7 +865,7 @@ export class ConsultationsService implements OnModuleInit {
         { consultationId, type: 'escrow-release' },
         {
           delay: disputeHours * 60 * 60 * 1000,
-          jobId: `escrow-release:${consultationId}`,
+          jobId: `escrow-release-${consultationId}`,
         },
       );
 
