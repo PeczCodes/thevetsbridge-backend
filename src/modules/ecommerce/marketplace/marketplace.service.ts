@@ -11,12 +11,17 @@ import { CreateListingDto } from './dto/create-listing.dto';
 import { generateSlug, uniqueSlug } from '../../../../common/utils/slug';
 import { getOrCreateMediaFromUrl } from '../../../../common/utils/media';
 import { CloudinaryService } from '../../../cloudinary/cloudinary.service';
+import { CacheService } from '../../../../infra/cache/cache.service';
+import { CacheKeys } from '../../../../infra/cache/cache-keys';
 
 @Injectable()
 export class MarketplaceService {
+  private readonly logger = new Logger(MarketplaceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async createProduct(dto: CreateProductDto) {
@@ -67,99 +72,111 @@ export class MarketplaceService {
   }
 
   async getListings() {
-    const listings = await this.prisma.vendorProduct.findMany({
-      where: {
-        isActive: true,
-        vendor: { isActive: true },
-      },
-      include: {
-        product: true,
-        vendor: {
+    return this.cacheService.getOrSet(
+      CacheKeys.listings(),
+      async () => {
+        const listings = await this.prisma.vendorProduct.findMany({
+          where: {
+            isActive: true,
+            vendor: { isActive: true },
+          },
           include: {
-            avatarMedia: true,
-            user: {
+            product: true,
+            vendor: {
               include: {
                 avatarMedia: true,
+                user: {
+                  include: {
+                    avatarMedia: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    // Map output to match frontend expected fields (images list, conditions, category, seller ratings)
-    return listings.map((listing) => ({
-      id: listing.id,
-      slug: listing.slug || listing.id,
-      title: listing.product.name,
-      description: listing.product.description || '',
-      price: Number(listing.price),
-      category: (listing.attributes as any)?.category || 'OTHER',
-      condition: (listing.attributes as any)?.condition || 'NEW',
-      stock: listing.stock,
-      location: listing.vendor.businessAddress || 'Nigeria',
-      shippingFee: Number((listing.attributes as any)?.shippingFee || 0),
-      images: (listing.attributes as any)?.images || null,
-      seller: {
-        name: `${listing.vendor.user.firstName} ${listing.vendor.user.lastName}`,
-        image: listing.vendor.avatarMedia?.storageUrl || undefined,
-        vendorProfile: {
-          businessName: listing.vendor.businessName || '',
-          rating: listing.vendor.rating,
-          verified: listing.vendor.status === 'APPROVED',
-        },
+        // Map output to match frontend expected fields (images list, conditions, category, seller ratings)
+        return listings.map((listing) => ({
+          id: listing.id,
+          slug: listing.slug || listing.id,
+          title: listing.product.name,
+          description: listing.product.description || '',
+          price: Number(listing.price),
+          category: (listing.attributes as any)?.category || 'OTHER',
+          condition: (listing.attributes as any)?.condition || 'NEW',
+          stock: listing.stock,
+          location: listing.vendor.businessAddress || 'Nigeria',
+          shippingFee: Number((listing.attributes as any)?.shippingFee || 0),
+          images: (listing.attributes as any)?.images || null,
+          seller: {
+            name: `${listing.vendor.user.firstName} ${listing.vendor.user.lastName}`,
+            image: listing.vendor.avatarMedia?.storageUrl || undefined,
+            vendorProfile: {
+              businessName: listing.vendor.businessName || '',
+              rating: listing.vendor.rating,
+              verified: listing.vendor.status === 'APPROVED',
+            },
+          },
+        }));
       },
-    }));
+      120,
+    );
   }
 
   async getListingDetails(idOrSlug: string) {
-    const listing = await this.prisma.vendorProduct.findFirst({
-      where: {
-        OR: [{ id: idOrSlug }, { sku: idOrSlug }, { slug: idOrSlug }],
-        isActive: true,
-        vendor: { isActive: true },
-      },
-      include: {
-        product: true,
-        vendor: {
+    return this.cacheService.getOrSet(
+      CacheKeys.listing(idOrSlug),
+      async () => {
+        const listing = await this.prisma.vendorProduct.findFirst({
+          where: {
+            OR: [{ id: idOrSlug }, { sku: idOrSlug }, { slug: idOrSlug }],
+            isActive: true,
+            vendor: { isActive: true },
+          },
           include: {
-            avatarMedia: true,
-            user: {
+            product: true,
+            vendor: {
               include: {
                 avatarMedia: true,
+                user: {
+                  include: {
+                    avatarMedia: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    if (!listing) {
-      throw new NotFoundException(`Product listing ${idOrSlug} not found`);
-    }
+        if (!listing) {
+          throw new NotFoundException(`Product listing ${idOrSlug} not found`);
+        }
 
-    return {
-      id: listing.id,
-      slug: listing.slug || listing.id,
-      title: listing.product.name,
-      description: listing.product.description || '',
-      price: Number(listing.price),
-      category: (listing.attributes as any)?.category || 'OTHER',
-      condition: (listing.attributes as any)?.condition || 'NEW',
-      stock: listing.stock,
-      location: listing.vendor.businessAddress || 'Nigeria',
-      shippingFee: Number((listing.attributes as any)?.shippingFee || 0),
-      images: (listing.attributes as any)?.images || null,
-      seller: {
-        name: `${listing.vendor.user.firstName} ${listing.vendor.user.lastName}`,
-        image: listing.vendor.avatarMedia?.storageUrl || undefined,
-        vendorProfile: {
-          businessName: listing.vendor.businessName || '',
-          rating: listing.vendor.rating,
-          verified: listing.vendor.status === 'APPROVED',
-        },
+        return {
+          id: listing.id,
+          slug: listing.slug || listing.id,
+          title: listing.product.name,
+          description: listing.product.description || '',
+          price: Number(listing.price),
+          category: (listing.attributes as any)?.category || 'OTHER',
+          condition: (listing.attributes as any)?.condition || 'NEW',
+          stock: listing.stock,
+          location: listing.vendor.businessAddress || 'Nigeria',
+          shippingFee: Number((listing.attributes as any)?.shippingFee || 0),
+          images: (listing.attributes as any)?.images || null,
+          seller: {
+            name: `${listing.vendor.user.firstName} ${listing.vendor.user.lastName}`,
+            image: listing.vendor.avatarMedia?.storageUrl || undefined,
+            vendorProfile: {
+              businessName: listing.vendor.businessName || '',
+              rating: listing.vendor.rating,
+              verified: listing.vendor.status === 'APPROVED',
+            },
+          },
+        };
       },
-    };
+      120,
+    );
   }
 
   async updateListingStatus(
@@ -179,10 +196,21 @@ export class MarketplaceService {
       throw new ForbiddenException('You do not own this listing');
     }
 
-    return this.prisma.vendorProduct.update({
+    const updated = await this.prisma.vendorProduct.update({
       where: { id: vendorProductId },
       data: { isActive },
     });
+
+    // Evict the catalog and the individual listing so the new status is visible
+    await Promise.all([
+      this.cacheService.invalidateListings(),
+      this.cacheService.del(CacheKeys.listing(vendorProductId)),
+      listing.slug
+        ? this.cacheService.del(CacheKeys.listing(listing.slug))
+        : Promise.resolve(),
+    ]);
+
+    return updated;
   }
 
   async getVendorProducts(vendorProfileId: string) {
@@ -281,7 +309,7 @@ export class MarketplaceService {
       return !!exists;
     });
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
         data: {
           name: body.title,
@@ -327,6 +355,11 @@ export class MarketplaceService {
 
       return listing;
     });
+
+    // Evict listings catalog so the new product is visible immediately
+    await this.cacheService.invalidateListings();
+
+    return result;
   }
 
   async updateVendorProduct(
@@ -334,7 +367,7 @@ export class MarketplaceService {
     vendorProductId: string,
     body: any,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const listing = await tx.vendorProduct.findUnique({
         where: { id: vendorProductId },
         include: { product: true },
@@ -384,6 +417,14 @@ export class MarketplaceService {
         },
       });
     });
+
+    // Evict catalog + individual listing key
+    await Promise.all([
+      this.cacheService.invalidateListings(),
+      this.cacheService.del(CacheKeys.listing(vendorProductId)),
+    ]);
+
+    return result;
   }
 
   async updateVendorProfile(
@@ -411,9 +452,10 @@ export class MarketplaceService {
       vendorProfile.status === 'REJECTED' ? 'PENDING' : vendorProfile.status;
 
     let resolvedMedia: any = null;
+    let result: any;
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      result = await this.prisma.$transaction(async (tx) => {
         // Regenerate slug if the business name changed
         let slug = vendorProfile.slug;
         if (
@@ -535,6 +577,11 @@ export class MarketplaceService {
       }
       throw error;
     }
+
+    // Vendor name/avatar appear in every listing's seller field — evict catalog
+    await this.cacheService.invalidateListings();
+
+    return result;
   }
 
   async getVendorOrders(vendorProfileId: string) {

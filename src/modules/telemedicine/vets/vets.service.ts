@@ -9,12 +9,15 @@ import { VetSpecialization } from '@prisma/client';
 import { generateSlug, uniqueSlug } from '../../../../common/utils/slug';
 import { getOrCreateMediaFromUrl } from '../../../../common/utils/media';
 import { CloudinaryService } from '../../../cloudinary/cloudinary.service';
+import { CacheService } from '../../../../infra/cache/cache.service';
+import { CacheKeys } from '../../../../infra/cache/cache-keys';
 
 @Injectable()
 export class VetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async getVetStats(vetProfileId: string) {
@@ -173,120 +176,146 @@ export class VetsService {
     verifiedOnly?: string,
     excludeVetProfileId?: string,
   ) {
-    const where: any = {
-      status: 'APPROVED',
-      isActive: true,
-      // Exclude the requesting user's own profile so vets don't see themselves in the directory
-      ...(excludeVetProfileId && { id: { not: excludeVetProfileId } }),
-    };
+    // Build a deterministic, sorted fingerprint so that identical filter combos
+    // always map to the same cache key, regardless of param order.
+    const fingerprintParams: Record<string, string> = {};
+    if (specialization) fingerprintParams.specialization = specialization;
+    if (minRating) fingerprintParams.minRating = minRating;
+    if (maxFee) fingerprintParams.maxFee = maxFee;
+    if (availableOnly === 'true') fingerprintParams.availableOnly = 'true';
+    if (verifiedOnly === 'true') fingerprintParams.verifiedOnly = 'true';
+    // excludeVetProfileId is user-specific — exclude from shared cache key
+    const fingerprint = Object.keys(fingerprintParams)
+      .sort()
+      .map((k) => `${k}=${fingerprintParams[k]}`)
+      .join('&');
 
-    if (specialization) {
-      where.specializations = { has: specialization as VetSpecialization };
-    }
+    return this.cacheService.getOrSet(
+      CacheKeys.vetsList(fingerprint),
+      async () => {
+        const where: any = {
+          status: 'APPROVED',
+          isActive: true,
+          // Exclude the requesting user's own profile so vets don't see themselves in the directory
+          ...(excludeVetProfileId && { id: { not: excludeVetProfileId } }),
+        };
 
-    if (availableOnly === 'true') {
-      where.isAvailable = true;
-    }
+        if (specialization) {
+          where.specializations = { has: specialization as VetSpecialization };
+        }
 
-    if (minRating) {
-      where.rating = { gte: parseFloat(minRating) };
-    }
+        if (availableOnly === 'true') {
+          where.isAvailable = true;
+        }
 
-    if (maxFee) {
-      where.consultationFee = { lte: parseFloat(maxFee) };
-    }
+        if (minRating) {
+          where.rating = { gte: parseFloat(minRating) };
+        }
 
-    const vets = await this.prisma.vetProfile.findMany({
-      where,
-      include: {
-        avatarMedia: true,
-        user: {
+        if (maxFee) {
+          where.consultationFee = { lte: parseFloat(maxFee) };
+        }
+
+        const vets = await this.prisma.vetProfile.findMany({
+          where,
           include: {
             avatarMedia: true,
-          },
-        },
-      },
-    });
-
-    return vets.map((vet) => ({
-      id: vet.id,
-      slug: vet.slug || vet.id,
-      specializations: vet.specializations,
-      specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
-      consultationFee: vet.consultationFee ? Number(vet.consultationFee) : null,
-      rating: vet.rating,
-      totalConsults: vet.totalConsults,
-      verificationStatus: vet.status === verifiedOnly && 'APPROVED',
-      isAvailable: vet.isAvailable,
-      user: {
-        name: `${vet.user.firstName} ${vet.user.lastName}`,
-        image: vet.avatarMedia?.storageUrl || null,
-      },
-    }));
-  }
-
-  async getVetProfile(idOrSlug: string) {
-    const vet = await this.prisma.vetProfile.findFirst({
-      where: {
-        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-        status: 'APPROVED',
-        isActive: true,
-      },
-      include: {
-        avatarMedia: true,
-        user: {
-          include: {
-            avatarMedia: true,
-          },
-        },
-        reviews: {
-          where: { status: 'PUBLISHED' },
-          include: {
-            reviewer: {
+            user: {
               include: {
                 avatarMedia: true,
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
+        });
 
-    if (!vet) {
-      throw new NotFoundException('Veterinarian profile not found');
-    }
-
-    return {
-      id: vet.id,
-      slug: vet.slug || vet.id,
-      specializations: vet.specializations,
-      specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
-      licenseNumber: vet.licenseNumber,
-      experience: vet.experience,
-      consultationFee: vet.consultationFee ? Number(vet.consultationFee) : 0,
-      emergencyFee: vet.emergencyFee ? Number(vet.emergencyFee) : null,
-      bio: vet.bio || '',
-      qualifications: vet.qualifications,
-      languages: vet.languages,
-      rating: vet.rating,
-      totalConsults: vet.totalConsults,
-      user: {
-        name: `${vet.user.firstName} ${vet.user.lastName}`,
-        email: vet.user.email,
-        image: vet.avatarMedia?.storageUrl || null,
+        return vets.map((vet) => ({
+          id: vet.id,
+          slug: vet.slug || vet.id,
+          specializations: vet.specializations,
+          specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
+          consultationFee: vet.consultationFee ? Number(vet.consultationFee) : null,
+          rating: vet.rating,
+          totalConsults: vet.totalConsults,
+          verificationStatus: vet.status === verifiedOnly && 'APPROVED',
+          isAvailable: vet.isAvailable,
+          user: {
+            name: `${vet.user.firstName} ${vet.user.lastName}`,
+            image: vet.avatarMedia?.storageUrl || null,
+          },
+        }));
       },
-      reviews: vet.reviews.map((r) => ({
-        id: r.id,
-        rating: r.rating,
-        comment: r.comment || '',
-        createdAt: r.createdAt.toISOString(),
-        user: {
-          name: `${r.reviewer.firstName} ${r.reviewer.lastName}`,
-          image: r.reviewer.avatarMedia?.storageUrl || null,
-        },
-      })),
-    };
+      120,
+    );
+  }
+
+  async getVetProfile(idOrSlug: string) {
+    return this.cacheService.getOrSet(
+      CacheKeys.vetProfile(idOrSlug),
+      async () => {
+        const vet = await this.prisma.vetProfile.findFirst({
+          where: {
+            OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+            status: 'APPROVED',
+            isActive: true,
+          },
+          include: {
+            avatarMedia: true,
+            user: {
+              include: {
+                avatarMedia: true,
+              },
+            },
+            reviews: {
+              where: { status: 'PUBLISHED' },
+              include: {
+                reviewer: {
+                  include: {
+                    avatarMedia: true,
+                  },
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        });
+
+        if (!vet) {
+          throw new NotFoundException('Veterinarian profile not found');
+        }
+
+        return {
+          id: vet.id,
+          slug: vet.slug || vet.id,
+          specializations: vet.specializations,
+          specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
+          licenseNumber: vet.licenseNumber,
+          experience: vet.experience,
+          consultationFee: vet.consultationFee ? Number(vet.consultationFee) : 0,
+          emergencyFee: vet.emergencyFee ? Number(vet.emergencyFee) : null,
+          bio: vet.bio || '',
+          qualifications: vet.qualifications,
+          languages: vet.languages,
+          rating: vet.rating,
+          totalConsults: vet.totalConsults,
+          user: {
+            name: `${vet.user.firstName} ${vet.user.lastName}`,
+            email: vet.user.email,
+            image: vet.avatarMedia?.storageUrl || null,
+          },
+          reviews: vet.reviews.map((r) => ({
+            id: r.id,
+            rating: r.rating,
+            comment: r.comment || '',
+            createdAt: r.createdAt.toISOString(),
+            user: {
+              name: `${r.reviewer.firstName} ${r.reviewer.lastName}`,
+              image: r.reviewer.avatarMedia?.storageUrl || null,
+            },
+          })),
+        };
+      },
+      120,
+    );
   }
 
   async getMonthAvailability(
@@ -553,9 +582,10 @@ export class VetsService {
       vetProfile.status === 'REJECTED' ? 'PENDING' : vetProfile.status;
 
     let resolvedMedia: any = null;
+    let result: any;
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      result = await this.prisma.$transaction(async (tx) => {
         let firstName: string | undefined;
         let lastName: string | undefined;
         if (dto.name) {
@@ -699,6 +729,17 @@ export class VetsService {
       }
       throw error;
     }
+
+    // Invalidate the vet's own profile cache, the shared entity cache,
+    // and all directory listing variants (fee, rating, availability filters may change)
+    await Promise.all([
+      this.cacheService.invalidateVet(userId, vetProfileId),
+      this.cacheService.del(CacheKeys.vetProfile(vetProfileId)),
+      this.cacheService.del(CacheKeys.vetProfile(result.slug || vetProfileId)),
+      this.cacheService.invalidateVetsList(),
+    ]);
+
+    return result;
   }
 
   async getVetAvailability(vetProfileId: string) {
@@ -710,7 +751,7 @@ export class VetsService {
   }
 
   async updateVetAvailability(vetProfileId: string, slots: any[]) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.vetAvailability.deleteMany({
         where: { vetId: vetProfileId },
       });
@@ -729,5 +770,10 @@ export class VetsService {
 
       return { success: true };
     });
+
+    // Changing availability windows affects the availableOnly filter result — purge all list variants
+    await this.cacheService.invalidateVetsList();
+
+    return result;
   }
 }

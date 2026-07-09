@@ -151,4 +151,62 @@ export class CacheService {
     await this.del(CacheKeys.authMe(userId));
     await this.del(CacheKeys.wallet(userId));
   }
+
+  // ── Marketplace ────────────────────────────────────────────────────────────
+
+  /** Evict the full listings catalog cache. */
+  async invalidateListings(): Promise<void> {
+    await this.del(CacheKeys.listings());
+  }
+
+  // ── Vet Directory ─────────────────────────────────────────────────────────
+
+  /**
+   * Evict every cached vet directory listing (all filter variants).
+   * Uses SCAN so it is non-blocking and safe in production Redis.
+   */
+  async invalidateVetsList(): Promise<void> {
+    await this.scanAndDel('vets:list:*');
+  }
+
+  /**
+   * Scan Redis for keys matching `pattern` and delete them in batches.
+   * Uses SCAN instead of KEYS to avoid blocking the Redis event loop.
+   */
+  private async scanAndDel(pattern: string): Promise<void> {
+    if (!this.redisService.isAvailable()) return;
+    const client = this.redisService.getClient();
+    let cursor = '0';
+    let deleted = 0;
+
+    try {
+      do {
+        const [nextCursor, keys] = await client.scan(
+          cursor,
+          'MATCH',
+          pattern,
+          'COUNT',
+          100,
+        );
+        cursor = nextCursor;
+
+        if (keys.length > 0) {
+          await client.del(...keys);
+          deleted += keys.length;
+          this.logger.log(
+            `[Cache Invalidation] scanAndDel: deleted ${keys.length} key(s) matching "${pattern}"`,
+          );
+        }
+      } while (cursor !== '0');
+
+      this.logger.log(
+        `[Cache Invalidation] scanAndDel complete. Total deleted: ${deleted} key(s) matching "${pattern}"`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[Cache Invalidation] scanAndDel failed for pattern "${pattern}":`,
+        error,
+      );
+    }
+  }
 }
