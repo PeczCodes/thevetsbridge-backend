@@ -165,6 +165,17 @@ export class ConsultationsController {
     return this.consultationsService.resolveDispute(user.id, disputeId, dto);
   }
 
+  @Patch(':id/status')
+  @RequireProfile('VET')
+  @UseGuards(RequireProfileGuard)
+  async updateStatus(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body('status') status: string,
+  ) {
+    return this.consultationsService.updateStatus(user.id, id, status);
+  }
+
   @Post(':id/review')
   async submitReview(
     @Param('id') id: string,

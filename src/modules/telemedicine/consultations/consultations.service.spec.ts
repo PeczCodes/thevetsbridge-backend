@@ -160,7 +160,7 @@ describe('ConsultationsService', () => {
       });
       prisma.appointment.create.mockResolvedValue({
         id: 'appt-123',
-        status: 'PENDING_PAYMENT',
+        status: 'PENDING',
       });
       prisma.consultation.create.mockResolvedValue({
         id: 'cons-123',

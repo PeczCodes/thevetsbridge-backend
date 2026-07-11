@@ -135,7 +135,7 @@ export class ConsultationsService implements OnModuleInit {
           ownerId: customerId,
           vetId: dto.vetId,
           type: 'CONSULTATION',
-          status: 'PENDING_PAYMENT',
+          status: 'PENDING',
           scheduledStart,
           scheduledEnd,
           notes: dto.notes || null,
@@ -261,7 +261,27 @@ export class ConsultationsService implements OnModuleInit {
       skip,
       take: limit,
       include: {
-        vet: { include: { user: true } },
+        vet: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                avatarMediaId: true,
+                isAdmin: true,
+                isActive: true,
+                timezone: true,
+                createdAt: true,
+                updatedAt: true,
+                avatarMedia: true,
+              },
+            },
+          },
+        },
         animal: true,
         appointment: true,
       },
@@ -296,7 +316,23 @@ export class ConsultationsService implements OnModuleInit {
       skip,
       take: limit,
       include: {
-        customer: true,
+        customer: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+            avatarMediaId: true,
+            isAdmin: true,
+            isActive: true,
+            timezone: true,
+            createdAt: true,
+            updatedAt: true,
+            avatarMedia: true,
+          },
+        },
         animal: true,
         appointment: true,
       },
@@ -353,7 +389,19 @@ export class ConsultationsService implements OnModuleInit {
           content,
           isFollowUp: false,
         },
-        include: { sender: true },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              displayName: true,
+              avatarMediaId: true,
+              avatarMedia: true,
+            },
+          },
+        },
       });
     }
 
@@ -378,7 +426,19 @@ export class ConsultationsService implements OnModuleInit {
           content,
           isFollowUp: true,
         },
-        include: { sender: true },
+        include: {
+          sender: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              displayName: true,
+              avatarMediaId: true,
+              avatarMedia: true,
+            },
+          },
+        },
       });
     }
 
@@ -406,7 +466,19 @@ export class ConsultationsService implements OnModuleInit {
       where: { consultationId },
       skip,
       take: limit,
-      include: { sender: true },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+            avatarMediaId: true,
+            avatarMedia: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -502,8 +574,44 @@ export class ConsultationsService implements OnModuleInit {
     const consultation = await this.prisma.consultation.findUnique({
       where: { id: consultationId },
       include: {
-        vet: { include: { user: true } },
-        customer: true,
+        vet: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
+                avatarMediaId: true,
+                isAdmin: true,
+                isActive: true,
+                timezone: true,
+                createdAt: true,
+                updatedAt: true,
+                avatarMedia: true,
+              },
+            },
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+            avatarMediaId: true,
+            isAdmin: true,
+            isActive: true,
+            timezone: true,
+            createdAt: true,
+            updatedAt: true,
+            avatarMedia: true,
+          },
+        },
         animal: true,
         appointment: true,
         session: true,
@@ -1290,6 +1398,101 @@ export class ConsultationsService implements OnModuleInit {
         comment: dto.comment || null,
         isVerified: true,
       },
+    });
+  }
+
+  async updateStatus(userId: string, consultationId: string, status: string) {
+    const consultation = await this.prisma.consultation.findUnique({
+      where: { id: consultationId },
+      include: {
+        appointment: true,
+        vet: true,
+      },
+    });
+
+    if (!consultation) {
+      throw new NotFoundException('Consultation not found');
+    }
+
+    if (consultation.vet.userId !== userId) {
+      throw new ForbiddenException('Not authorized to update this consultation');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (status === 'APPROVED') {
+        // Map APPROVED from frontend to CONFIRMED in the database
+        if (consultation.appointmentId) {
+          await tx.appointment.update({
+            where: { id: consultation.appointmentId },
+            data: { status: 'CONFIRMED' },
+          });
+
+          if (consultation.appointment?.slotId) {
+            await tx.vetSlot.update({
+              where: { id: consultation.appointment.slotId },
+              data: { status: 'BOOKED' },
+            });
+          }
+        }
+
+        const updated = await tx.consultation.update({
+          where: { id: consultationId },
+          data: { status: 'CONFIRMED' },
+        });
+
+        await tx.outboxEvent.create({
+          data: {
+            type: 'CONSULTATION_STATUS_UPDATED',
+            payload: {
+              consultationId,
+              status: 'CONFIRMED',
+            },
+          },
+        });
+
+        return updated;
+      } else if (status === 'CANCELLED') {
+        if (consultation.appointmentId) {
+          await tx.appointment.update({
+            where: { id: consultation.appointmentId },
+            data: {
+              status: 'CANCELLED',
+              cancellationReason: 'VET_CANCELLED',
+            },
+          });
+
+          if (consultation.appointment?.slotId) {
+            await tx.vetSlot.update({
+              where: { id: consultation.appointment.slotId },
+              data: { status: 'AVAILABLE' },
+            });
+          }
+        }
+
+        const updated = await tx.consultation.update({
+          where: { id: consultationId },
+          data: {
+            status: 'CANCELLED',
+            cancellationReason: 'VET_CANCELLED',
+          },
+        });
+
+        await this.refundEscrowTransaction(tx, consultationId);
+
+        await tx.outboxEvent.create({
+          data: {
+            type: 'CONSULTATION_STATUS_UPDATED',
+            payload: {
+              consultationId,
+              status: 'CANCELLED',
+            },
+          },
+        });
+
+        return updated;
+      } else {
+        throw new BadRequestException(`Invalid status transition to ${status}`);
+      }
     });
   }
 }

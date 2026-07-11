@@ -957,7 +957,6 @@ enum AppointmentType {
 }
 
 enum AppointmentStatus {
-  PENDING_PAYMENT
   PENDING
   CONFIRMED
   IN_PROGRESS

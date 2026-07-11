@@ -59,7 +59,7 @@ export class UnpaidBookingCleanupProcessor
         // Find unpaid appointments
         const unpaidAppointments = await tx.appointment.findMany({
           where: {
-            status: 'PENDING_PAYMENT',
+            status: 'PENDING',
             createdAt: { lt: threshold },
           },
           select: { id: true },
