@@ -145,7 +145,7 @@ const baseLayout = (content: string) => `
       <div class="footer">
         <p>This is an automated notification from VetsBridge.</p>
         <p>&copy; 2026 VetsBridge. All rights reserved.</p>
-        <p><a href="https://thevetsbridge.com">Visit our website</a> | <a href="mailto:support@thevetsbridge.com">Contact Support</a></p>
+        <p><a href="https://vetsbridge.org">Visit our website</a> | <a href="mailto:support@vetsbridge.org">Contact Support</a></p>
       </div>
     </div>
   </div>
@@ -509,7 +509,7 @@ export function getEmailTemplate(templateName: string, context: any): { subject:
               <strong>Notice:</strong> Your access to all telemedicine, appointments, orders, and marketplace capabilities is currently paused.
             </div>
             
-            <p>If you believe this was an error or wish to inquire about the compliance details, please contact administrative support at <a href="mailto:compliance@thevetsbridge.com" style="color: #4A90E2;">compliance@thevetsbridge.com</a>.</p>
+            <p>If you believe this was an error or wish to inquire about the compliance details, please contact administrative support at <a href="mailto:compliance@vetsbridge.org" style="color: #4A90E2;">compliance@vetsbridge.org</a>.</p>
           `;
       break;
 

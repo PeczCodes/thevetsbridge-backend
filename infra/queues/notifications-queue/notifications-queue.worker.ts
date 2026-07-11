@@ -51,7 +51,7 @@ export class NotificationsQueueWorker extends WorkerHost {
 
         // Resolve Resend credentials and from address
         const apiKey = this.configService.get<string>('RESEND_API_KEY') || '';
-        const rawFrom = 'VetsBridge <onboarding@resend.dev>';
+        const rawFrom = this.configService.get<string>('SMTP_FROM') || 'VetsBridge <noreply@vetsbridge.org>';
         
         // If Resend key is missing or default placeholder, log HTML to console for local testing
         if (!apiKey || apiKey === 'placeholder' || apiKey.startsWith('your_') || apiKey.startsWith('re_placeholder')) {
