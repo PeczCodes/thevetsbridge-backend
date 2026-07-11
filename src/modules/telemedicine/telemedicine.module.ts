@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConsultationsService } from './consultations/consultations.service';
 import { PrescriptionsService } from './prescriptions/prescriptions.service';
 import { ConsultationsController } from './consultations/consultations.controller';
@@ -18,13 +18,16 @@ import { BullModule } from '@nestjs/bullmq';
 import { UnpaidBookingCleanupProcessor } from './consultations/services/unpaid-booking-cleanup.processor';
 import { ConsultationLifecycleWorker } from './consultations/services/consultation-lifecycle.worker';
 import { PaymentsModule } from '../payments/payments.module';
+import { NotificationsQueueModule } from '../../../infra/queues/notifications-queue/notifications-queue.module';
+import { AppointmentLifecycleService } from './consultations/services/appointment-lifecycle.service';
 
 @Module({
   imports: [
     PrismaModule,
     AnimalsModule,
     IdentityModule,
-    PaymentsModule,
+    forwardRef(() => PaymentsModule),
+    NotificationsQueueModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -52,7 +55,8 @@ import { PaymentsModule } from '../payments/payments.module';
     VetsService,
     UnpaidBookingCleanupProcessor,
     ConsultationLifecycleWorker,
+    AppointmentLifecycleService,
   ],
-  exports: [ConsultationsService, PrescriptionsService, DirectMessagingService],
+  exports: [ConsultationsService, PrescriptionsService, DirectMessagingService, AppointmentLifecycleService],
 })
 export class TelemedicineModule {}

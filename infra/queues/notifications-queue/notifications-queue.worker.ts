@@ -37,11 +37,11 @@ export class NotificationsQueueWorker extends WorkerHost {
           const consultation = await this.prisma.consultation.findUnique({
             where: { id: context.consultationId },
           });
-          if (!consultation || consultation.status !== 'SCHEDULED') {
+          if (!consultation || consultation.status !== 'CONFIRMED') {
             this.logger.log(
-              `[Queue Worker] [EMAIL] Skipping reminder email for Consultation ID ${context.consultationId} because its current status is "${consultation?.status || 'DELETED'}" (expected "SCHEDULED")`
+              `[Queue Worker] [EMAIL] Skipping reminder email for Consultation ID ${context.consultationId} because its current status is "${consultation?.status || 'DELETED'}" (expected "CONFIRMED")`
             );
-            return { skipped: true, reason: 'Consultation is no longer SCHEDULED' };
+            return { skipped: true, reason: 'Consultation is no longer CONFIRMED' };
           }
         }
         

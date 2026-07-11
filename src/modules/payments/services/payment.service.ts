@@ -3,7 +3,10 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
+import { AppointmentLifecycleService } from '../../telemedicine/consultations/services/appointment-lifecycle.service';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { PaystackProvider } from '../providers/paystack.provider';
 import { LedgerService } from './ledger.service';
@@ -24,6 +27,8 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly paystackProvider: PaystackProvider,
     private readonly ledgerService: LedgerService,
+    @Inject(forwardRef(() => AppointmentLifecycleService))
+    private readonly appointmentLifecycleService: AppointmentLifecycleService,
   ) {}
 
   /**
@@ -415,22 +420,12 @@ export class PaymentService {
             data: { status: 'PAID' },
           });
         } else if (payment.purpose === 'APPOINTMENT' && payment.appointmentId) {
-          const updatedAppt = await tx.appointment.update({
-            where: { id: payment.appointmentId },
-            data: { status: 'CONFIRMED' },
-          });
-
-          await tx.consultation.updateMany({
-            where: { appointmentId: payment.appointmentId },
-            data: { status: 'CONFIRMED' },
-          });
-
-          if (updatedAppt.slotId) {
-            await tx.vetSlot.update({
-              where: { id: updatedAppt.slotId },
-              data: { status: 'BOOKED' },
-            });
-          }
+          await this.appointmentLifecycleService.transitionTo(
+            payment.appointmentId,
+            'PENDING',
+            undefined,
+            tx,
+          );
         }
 
         // Mark webhook log as processed if triggered by webhook

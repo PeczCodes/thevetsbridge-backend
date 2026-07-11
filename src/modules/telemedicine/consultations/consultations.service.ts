@@ -6,7 +6,10 @@ import {
   Logger,
   OnModuleInit,
   InternalServerErrorException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
+import { AppointmentLifecycleService } from './services/appointment-lifecycle.service';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { ScheduleConsultationDto } from './dto/schedule-consultation.dto';
 import {
@@ -81,6 +84,8 @@ export class ConsultationsService implements OnModuleInit {
     private readonly redisService: RedisService,
     @InjectQueue('consultation-lifecycle')
     private readonly lifecycleQueue: Queue,
+    @Inject(forwardRef(() => AppointmentLifecycleService))
+    private readonly appointmentLifecycleService: AppointmentLifecycleService,
   ) {}
 
   async scheduleConsultation(customerId: string, dto: ScheduleConsultationDto) {
@@ -157,22 +162,6 @@ export class ConsultationsService implements OnModuleInit {
           files: dto.files ? (dto.files as any) : Prisma.JsonNull,
         },
       });
-
-      await tx.outboxEvent.create({
-        data: {
-          type: 'CONSULTATION_SCHEDULED',
-          payload: {
-            consultationId: consultation.id,
-            customerId,
-            vetId: dto.vetId,
-            animalId: dto.animalId,
-            appointmentId: appointment.id,
-          },
-        },
-      });
-
-      // Schedule reminders and no-show jobs
-      await this.scheduleReminderJobs(consultation.id, scheduledStart);
 
       return {
         ...consultation,
@@ -612,7 +601,11 @@ export class ConsultationsService implements OnModuleInit {
             avatarMedia: true,
           },
         },
-        animal: true,
+        animal: {
+          include: {
+            photoMedia: true,
+          },
+        },
         appointment: true,
         session: true,
         dispute: true,
@@ -1138,58 +1131,51 @@ export class ConsultationsService implements OnModuleInit {
 
   // Ephemeral automatic no-show
   async handleNoShow(consultationId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>(
-        Prisma.sql`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`,
-      );
-      if (!consultations || consultations.length === 0)
-        return { success: false };
-      const consultation = consultations[0];
-
-      // If already started/resolved, no-op
-      if (consultation.status !== 'CONFIRMED') {
-        return {
-          success: false,
-          reason: 'Already transitioned out of Confirmed status',
-        };
-      }
-
-      const hasVetJoined = consultation.vetJoinedAt !== null;
-      const hasCustomerJoined = consultation.customerJoinedAt !== null;
-
-      if (!hasVetJoined && !hasCustomerJoined) {
-        // Both never joined
-        await tx.consultation.update({
-          where: { id: consultationId },
-          data: { status: 'CANCELLED', cancellationReason: 'PAYMENT_TIMEOUT' },
-        });
-        await this.refundEscrowTransaction(tx, consultationId);
-        return { success: true, outcome: 'both_no_show' };
-      }
-
-      if (hasVetJoined && !hasCustomerJoined) {
-        // Vet joined, customer did not
-        await tx.consultation.update({
-          where: { id: consultationId },
-          data: { status: 'CANCELLED', cancellationReason: 'CUSTOMER_NO_SHOW' },
-        });
-        // Payout vet since they waited
-        await this.releaseEscrowTransaction(tx, consultationId);
-        return { success: true, outcome: 'customer_no_show' };
-      }
-
-      if (!hasVetJoined && hasCustomerJoined) {
-        // Customer joined, vet did not
-        await tx.consultation.update({
-          where: { id: consultationId },
-          data: { status: 'CANCELLED', cancellationReason: 'VET_NO_SHOW' },
-        });
-        await this.refundEscrowTransaction(tx, consultationId);
-        return { success: true, outcome: 'vet_no_show' };
-      }
-
-      return { success: false };
+    const consultation = await this.prisma.consultation.findUnique({
+      where: { id: consultationId },
+      include: { appointment: true },
     });
+
+    if (!consultation || !consultation.appointmentId) {
+      return { success: false, reason: 'Consultation or appointment not found' };
+    }
+
+    if (consultation.status !== 'CONFIRMED') {
+      return {
+        success: false,
+        reason: 'Already transitioned out of Confirmed status',
+      };
+    }
+
+    const hasVetJoined = consultation.vetJoinedAt !== null;
+    const hasCustomerJoined = consultation.customerJoinedAt !== null;
+
+    if (!hasVetJoined && !hasCustomerJoined) {
+      // Both never joined - transition to CANCELLED
+      await this.appointmentLifecycleService.transitionTo(consultation.appointmentId, 'CANCELLED', {
+        cancelledBy: 'SYSTEM',
+        cancelReason: 'PAYMENT_TIMEOUT',
+      });
+      return { success: true, outcome: 'both_no_show' };
+    }
+
+    if (hasVetJoined && !hasCustomerJoined) {
+      // Vet joined, customer did not
+      await this.appointmentLifecycleService.transitionTo(consultation.appointmentId, 'NO_SHOW', {
+        noShowParty: 'CLIENT',
+      });
+      return { success: true, outcome: 'customer_no_show' };
+    }
+
+    if (!hasVetJoined && hasCustomerJoined) {
+      // Customer joined, vet did not
+      await this.appointmentLifecycleService.transitionTo(consultation.appointmentId, 'NO_SHOW', {
+        noShowParty: 'VET',
+      });
+      return { success: true, outcome: 'vet_no_show' };
+    }
+
+    return { success: false };
   }
 
   // Helpers for financial integrity
@@ -1343,7 +1329,7 @@ export class ConsultationsService implements OnModuleInit {
   ) {
     const consultation = await this.prisma.consultation.findUnique({
       where: { id: consultationId },
-      include: { vet: true },
+      include: { vet: true, appointment: true },
     });
 
     if (!consultation) {
@@ -1359,7 +1345,21 @@ export class ConsultationsService implements OnModuleInit {
       );
     }
 
-    if (action === 'start' || action === 'join') {
+    if (action === 'start') {
+      if (!isVet) {
+        throw new ForbiddenException('Only the veterinarian can start the session');
+      }
+      if (!consultation.appointmentId) {
+        throw new BadRequestException('Consultation is not linked to an appointment');
+      }
+      await this.appointmentLifecycleService.transitionTo(
+        consultation.appointmentId,
+        'IN_PROGRESS',
+      );
+      return this.generateLiveKitToken(userId, consultationId);
+    }
+
+    if (action === 'join') {
       return this.generateLiveKitToken(userId, consultationId);
     }
 
@@ -1369,7 +1369,13 @@ export class ConsultationsService implements OnModuleInit {
           'Only the veterinarian can end the session',
         );
       }
-      await this.endCallSession(consultationId);
+      if (!consultation.appointmentId) {
+        throw new BadRequestException('Consultation is not linked to an appointment');
+      }
+      await this.appointmentLifecycleService.transitionTo(
+        consultation.appointmentId,
+        'COMPLETED',
+      );
       return { success: true };
     }
 
@@ -1418,81 +1424,24 @@ export class ConsultationsService implements OnModuleInit {
       throw new ForbiddenException('Not authorized to update this consultation');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      if (status === 'APPROVED') {
-        // Map APPROVED from frontend to CONFIRMED in the database
-        if (consultation.appointmentId) {
-          await tx.appointment.update({
-            where: { id: consultation.appointmentId },
-            data: { status: 'CONFIRMED' },
-          });
+    if (!consultation.appointmentId) {
+      throw new BadRequestException('Consultation is not linked to an appointment');
+    }
 
-          if (consultation.appointment?.slotId) {
-            await tx.vetSlot.update({
-              where: { id: consultation.appointment.slotId },
-              data: { status: 'BOOKED' },
-            });
-          }
-        }
+    if (status === 'APPROVED') {
+      await this.appointmentLifecycleService.transitionTo(consultation.appointmentId, 'CONFIRMED');
+    } else if (status === 'CANCELLED') {
+      await this.appointmentLifecycleService.transitionTo(consultation.appointmentId, 'CANCELLED', {
+        cancelledBy: userId,
+        cancelReason: 'VET_CANCELLED',
+      });
+    } else {
+      throw new BadRequestException(`Invalid status transition to ${status}`);
+    }
 
-        const updated = await tx.consultation.update({
-          where: { id: consultationId },
-          data: { status: 'CONFIRMED' },
-        });
-
-        await tx.outboxEvent.create({
-          data: {
-            type: 'CONSULTATION_STATUS_UPDATED',
-            payload: {
-              consultationId,
-              status: 'CONFIRMED',
-            },
-          },
-        });
-
-        return updated;
-      } else if (status === 'CANCELLED') {
-        if (consultation.appointmentId) {
-          await tx.appointment.update({
-            where: { id: consultation.appointmentId },
-            data: {
-              status: 'CANCELLED',
-              cancellationReason: 'VET_CANCELLED',
-            },
-          });
-
-          if (consultation.appointment?.slotId) {
-            await tx.vetSlot.update({
-              where: { id: consultation.appointment.slotId },
-              data: { status: 'AVAILABLE' },
-            });
-          }
-        }
-
-        const updated = await tx.consultation.update({
-          where: { id: consultationId },
-          data: {
-            status: 'CANCELLED',
-            cancellationReason: 'VET_CANCELLED',
-          },
-        });
-
-        await this.refundEscrowTransaction(tx, consultationId);
-
-        await tx.outboxEvent.create({
-          data: {
-            type: 'CONSULTATION_STATUS_UPDATED',
-            payload: {
-              consultationId,
-              status: 'CANCELLED',
-            },
-          },
-        });
-
-        return updated;
-      } else {
-        throw new BadRequestException(`Invalid status transition to ${status}`);
-      }
+    return this.prisma.consultation.findUnique({
+      where: { id: consultationId },
+      include: { appointment: true },
     });
   }
 }

@@ -107,6 +107,9 @@ export class TelemedicineGateway implements OnGatewayConnection {
         vetProfileId: decoded.vetProfile?.id || user.vetProfile?.id,
       };
 
+      // Subscribe socket to a user-specific room for targeted global emissions
+      await socket.join(`user:${userId}`);
+
       this.logger.log(
         `Client authenticated: ${socket.id} (User: ${socket.data.user.id})`,
       );

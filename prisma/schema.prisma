@@ -333,6 +333,10 @@ model Appointment {
   notes              String?
   videoSessionId     String?
   cancellationReason String?
+  cancelledBy        String?
+  cancelledAt        DateTime?
+  noShowParty        String?
+  rescheduleRequest  Json?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   deletedAt          DateTime?

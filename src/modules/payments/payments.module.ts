@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { PaymentController } from './controllers/payment.controller';
 import { WebhookController } from './controllers/webhook.controller';
@@ -11,6 +11,7 @@ import { PaystackProvider } from './providers/paystack.provider';
 import { PaymentEventEmitter } from './events/payment-event.emitter';
 import { PaymentVerificationWorker } from './workers/payment-verification.worker';
 import { PayoutWorker } from './workers/payout.worker';
+import { TelemedicineModule } from '../telemedicine/telemedicine.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PayoutWorker } from './workers/payout.worker';
     BullModule.registerQueue({
       name: 'payout-queue',
     }),
+    forwardRef(() => TelemedicineModule),
   ],
   controllers: [PaymentController, WebhookController, PayoutController],
   providers: [
