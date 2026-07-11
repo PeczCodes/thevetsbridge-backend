@@ -261,7 +261,7 @@ export class OrdersService {
         },
       });
 
-      return this.prisma.order.findUnique({
+      return tx.order.findUnique({
         where: { id: order.id },
         include: {
           items: true,
