@@ -49,4 +49,14 @@ export class CacheKeys {
   static vetProfile(idOrSlug: string): string {
     return `vets:profile:${idOrSlug}`;
   }
+
+  // ── Search ────────────────────────────────────────────────────────────────
+
+  static searchRecent(): string {
+    return 'search:recent';
+  }
+
+  static searchQuery(query: string): string {
+    return `search:query:${query.trim().toLowerCase()}`;
+  }
 }

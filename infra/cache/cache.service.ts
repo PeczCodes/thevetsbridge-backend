@@ -157,6 +157,7 @@ export class CacheService {
   /** Evict the full listings catalog cache. */
   async invalidateListings(): Promise<void> {
     await this.del(CacheKeys.listings());
+    await this.invalidateSearch();
   }
 
   // ── Vet Directory ─────────────────────────────────────────────────────────
@@ -167,6 +168,15 @@ export class CacheService {
    */
   async invalidateVetsList(): Promise<void> {
     await this.scanAndDel('vets:list:*');
+    await this.invalidateSearch();
+  }
+
+  // ── Search ──────────────────────────────────────────────────────────────────
+
+  /** Evict the search queries and search recent results cache. */
+  async invalidateSearch(): Promise<void> {
+    await this.del(CacheKeys.searchRecent());
+    await this.scanAndDel('search:query:*');
   }
 
   /**

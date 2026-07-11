@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
+import { CacheService } from '../../../infra/cache/cache.service';
+import { CacheKeys } from '../../../infra/cache/cache-keys';
 
 const PET_KEYWORDS = [
   'dog',
@@ -48,80 +50,98 @@ const LIVESTOCK_KEYWORDS = [
 
 @Injectable()
 export class SearchService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheService: CacheService,
+  ) {}
 
   async getRecentOrFeatured() {
-    const [vets, listings] = await Promise.all([
-      this.prisma.vetProfile.findMany({
-        where: { status: 'APPROVED', isActive: true },
-        take: 4,
-        orderBy: { rating: 'desc' },
-        include: {
-          user: {
-            include: { avatarMedia: true },
-          },
-        },
-      }),
-      this.prisma.vendorProduct.findMany({
-        where: {
-          isActive: true,
-          vendor: { isActive: true },
-        },
-        take: 6,
-        include: { product: true },
-      }),
-    ]);
+    return this.cacheService.getOrSet(
+      CacheKeys.searchRecent(),
+      async () => {
+        const [vets, listings] = await Promise.all([
+          this.prisma.vetProfile.findMany({
+            where: { status: 'APPROVED', isActive: true },
+            take: 4,
+            orderBy: { rating: 'desc' },
+            include: {
+              avatarMedia: true,
+              user: {
+                include: { avatarMedia: true },
+              },
+            },
+          }),
+          this.prisma.vendorProduct.findMany({
+            where: {
+              isActive: true,
+              vendor: { isActive: true },
+            },
+            take: 6,
+            include: { product: true },
+          }),
+        ]);
 
-    return this.formatResults(vets, listings);
+        return this.formatResults(vets, listings);
+      },
+      20 * 60,
+    );
   }
 
   async searchAll(query: string) {
-    const [vets, listings] = await Promise.all([
-      this.prisma.vetProfile.findMany({
-        where: {
-          status: 'APPROVED',
-          isActive: true,
-          OR: [
-            { bio: { contains: query, mode: 'insensitive' } },
-            { user: { firstName: { contains: query, mode: 'insensitive' } } },
-            { user: { lastName: { contains: query, mode: 'insensitive' } } },
-          ],
-        },
-        take: 10,
-        include: {
-          user: {
-            include: { avatarMedia: true },
-          },
-        },
-      }),
-      this.prisma.vendorProduct.findMany({
-        where: {
-          isActive: true,
-          vendor: { isActive: true },
-          OR: [
-            { product: { name: { contains: query, mode: 'insensitive' } } },
-            {
-              product: {
-                description: { contains: query, mode: 'insensitive' },
+    return this.cacheService.getOrSet(
+      CacheKeys.searchQuery(query),
+      async () => {
+        const [vets, listings] = await Promise.all([
+          this.prisma.vetProfile.findMany({
+            where: {
+              status: 'APPROVED',
+              isActive: true,
+              OR: [
+                { bio: { contains: query, mode: 'insensitive' } },
+                { user: { firstName: { contains: query, mode: 'insensitive' } } },
+                { user: { lastName: { contains: query, mode: 'insensitive' } } },
+              ],
+            },
+            take: 10,
+            include: {
+              avatarMedia: true,
+              user: {
+                include: { avatarMedia: true },
               },
             },
-          ],
-        },
-        take: 10,
-        include: { product: true },
-      }),
-    ]);
+          }),
+          this.prisma.vendorProduct.findMany({
+            where: {
+              isActive: true,
+              vendor: { isActive: true },
+              OR: [
+                { product: { name: { contains: query, mode: 'insensitive' } } },
+                {
+                  product: {
+                    description: { contains: query, mode: 'insensitive' },
+                  },
+                },
+              ],
+            },
+            take: 10,
+            include: { product: true },
+          }),
+        ]);
 
-    return this.formatResults(vets, listings);
+        return this.formatResults(vets, listings);
+      },
+      20 * 60,
+    );
   }
 
   private formatResults(vets: any[], listings: any[]) {
     const formattedVets = vets.map((vet) => ({
       id: vet.id,
+      slug: vet.slug,
       name: `Dr. ${vet.user.firstName} ${vet.user.lastName}`,
       category: 'vets',
       rating: vet.rating || 0,
-      image: vet.user.avatarMedia?.storageUrl || undefined,
+      image: vet.avatarMedia?.storageUrl || vet.user.avatarMedia?.storageUrl || undefined,
       subtitle: vet.specializations[0] || 'GENERAL_PRACTICE',
       consultations: String(vet.totalConsults || 0),
     }));
@@ -144,6 +164,7 @@ export class SearchService {
 
       const formattedProduct = {
         id: listing.id,
+        slug: listing.slug,
         name: listing.product.name,
         category: isLivestock ? 'livestock' : 'pets',
         rating: 5.0,
