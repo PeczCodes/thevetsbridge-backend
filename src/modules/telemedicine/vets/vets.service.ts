@@ -244,7 +244,7 @@ export class VetsService {
           },
         }));
       },
-      120,
+      1200,
     );
   }
 
@@ -314,7 +314,7 @@ export class VetsService {
           })),
         };
       },
-      120,
+      1200,
     );
   }
 

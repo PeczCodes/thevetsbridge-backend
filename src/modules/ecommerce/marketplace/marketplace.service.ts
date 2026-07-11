@@ -119,7 +119,7 @@ export class MarketplaceService {
           },
         }));
       },
-      120,
+      1200,
     );
   }
 
@@ -175,7 +175,7 @@ export class MarketplaceService {
           },
         };
       },
-      120,
+      1200,
     );
   }
 
