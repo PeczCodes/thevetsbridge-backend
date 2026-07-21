@@ -693,9 +693,7 @@ export class ConsultationsService implements OnModuleInit {
 
     return this.prisma.$transaction(async (tx) => {
       // row-level lock
-      const consultations = await tx.$queryRaw<any[]>(
-        Prisma.sql`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`,
-      );
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
       if (!consultations || consultations.length === 0) {
         throw new NotFoundException('Consultation not found');
       }
@@ -849,9 +847,7 @@ export class ConsultationsService implements OnModuleInit {
 
   async handleReconnectTimeout(consultationId: string, userId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>(
-        Prisma.sql`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`,
-      );
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
       if (!consultations || consultations.length === 0)
         return { success: false, reason: 'Consultation not found' };
       const consultation = consultations[0];
@@ -907,9 +903,7 @@ export class ConsultationsService implements OnModuleInit {
     dto: SubmitSummaryDto,
   ) {
     return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>(
-        Prisma.sql`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`,
-      );
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
       if (!consultations || consultations.length === 0)
         throw new NotFoundException('Consultation not found');
       const consultation = consultations[0];
@@ -995,9 +989,7 @@ export class ConsultationsService implements OnModuleInit {
     dto: OpenDisputeDto,
   ) {
     return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>(
-        Prisma.sql`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`,
-      );
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
       if (!consultations || consultations.length === 0)
         throw new NotFoundException('Consultation not found');
       const consultation = consultations[0];
@@ -1105,9 +1097,7 @@ export class ConsultationsService implements OnModuleInit {
   // Ephemeral automatic payouts
   async processEscrowReleaseTimeout(consultationId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>(
-        Prisma.sql`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`,
-      );
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
       if (!consultations || consultations.length === 0)
         return { success: false, reason: 'Not found' };
       const consultation = consultations[0];

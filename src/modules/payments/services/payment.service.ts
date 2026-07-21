@@ -329,9 +329,7 @@ export class PaymentService {
     await this.prisma.$transaction(
       async (tx) => {
         // Query the payment record with a raw SQL query to apply FOR UPDATE lock
-        const payments = await tx.$queryRaw<any[]>(
-          Prisma.sql`SELECT * FROM "Payment" WHERE "reference" = ${reference} FOR UPDATE`,
-        );
+        const payments = await tx.$queryRaw<any[]>`SELECT * FROM "Payment" WHERE "reference" = ${reference} FOR UPDATE`;
 
         if (!payments || payments.length === 0) {
           throw new Error(
