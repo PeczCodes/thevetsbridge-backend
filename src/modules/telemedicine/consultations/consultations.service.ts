@@ -448,7 +448,8 @@ export class ConsultationsService implements OnModuleInit {
       );
     }
 
-    const { page = 1, limit = 100 } = pagination;
+    const page = pagination.page || 1;
+    const limit = pagination.limit && pagination.limit !== 10 ? pagination.limit : 100;
     const skip = (page - 1) * limit;
 
     return this.prisma.chatMessage.findMany({
