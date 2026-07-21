@@ -51,8 +51,10 @@ export class NotificationsQueueWorker extends WorkerHost {
 
         // Resolve Resend credentials and from address
         const apiKey = this.configService.get<string>('RESEND_API_KEY') || '';
-        const rawFrom = this.configService.get<string>('SMTP_FROM') || 'VetsBridge <noreply@vetsbridge.org>';
-        
+        const resendFromEnv = this.configService.get<string>('RESEND_FROM_EMAIL');
+        const smtpFromEnv = this.configService.get<string>('SMTP_FROM');
+        const rawFrom = resendFromEnv || smtpFromEnv || 'VetsBridge <onboarding@resend.dev>';
+
         // If Resend key is missing or default placeholder, log HTML to console for local testing
         if (!apiKey || apiKey === 'placeholder' || apiKey.startsWith('your_') || apiKey.startsWith('re_placeholder')) {
           this.logger.warn(`[Queue Worker] [EMAIL] RESEND_API_KEY is not configured or is a placeholder. FALLING BACK TO LOGGING EMAIL.`);
@@ -70,7 +72,7 @@ ${html}
         }
 
         try {
-          this.logger.log(`[Queue Worker] [EMAIL] Dispatching POST request to Resend API for ${to}`);
+          this.logger.log(`[Queue Worker] [EMAIL] Dispatching POST request to Resend API for ${to} | From: ${rawFrom}`);
           
           // Wrap with resend circuit breaker and align abort signals
           const response = await this.circuitBreakerService.execute(
@@ -89,7 +91,7 @@ ${html}
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    from: rawFrom.includes('onboarding@resend.dev') ? 'onboarding@resend.dev' : rawFrom,
+                    from: rawFrom,
                     to: [to],
                     subject: finalSubject,
                     html: html,
@@ -104,6 +106,7 @@ ${html}
 
           if (!response.ok) {
             const errBody = await response.text();
+            this.logger.error(`[Queue Worker] [EMAIL] Resend API responded with error ${response.status}: ${errBody}`);
             throw new ExternalServiceException({
               provider: 'resend',
               message: `Resend API error (${response.status}): ${errBody}`,

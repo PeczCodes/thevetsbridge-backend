@@ -30,7 +30,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     const bypass = this.configService.get<boolean>('app.bypassOutbox') ?? false;
     if (bypass) {
-      this.logger.log('Transactional Outbox bypass is active. Registering Prisma middleware interceptor.');
+      this.logger.log('Transactional Outbox bypass is active. Registering Prisma middleware & transaction interceptors.');
       this.$use(async (params, next) => {
         if (params.model === 'OutboxEvent' && params.action === 'create') {
           const { type, payload } = params.args.data;
@@ -69,6 +69,57 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         return next(params);
       });
     }
+  }
+
+  override async $transaction(arg1: any, arg2?: any): Promise<any> {
+    const bypass = this.configService.get<boolean>('app.bypassOutbox') ?? false;
+    if (!bypass) {
+      return super.$transaction(arg1, arg2);
+    }
+
+    if (typeof arg1 === 'function') {
+      return super.$transaction(async (tx) => {
+        if (tx && (tx as any).outboxEvent) {
+          (tx as any).outboxEvent.create = (async (args: any) => {
+            const { type, payload } = args.data;
+            this.logger.log(`[Outbox Bypass (Tx)] Intercepted transaction write of type: ${type}. Routing directly to BullMQ.`);
+            const fakeId = `fake_outbox_${Math.random().toString(36).substring(2, 11)}`;
+            try {
+              await this.outboxQueue.add(
+                'process-event',
+                {
+                  eventId: fakeId,
+                  type,
+                  payload,
+                },
+                {
+                  jobId: fakeId,
+                  attempts: 5,
+                  backoff: {
+                    type: 'exponential',
+                    delay: 2000,
+                  },
+                },
+              );
+            } catch (err) {
+              this.logger.error(`[Outbox Bypass (Tx)] Failed to direct-publish to outbox-events queue: ${err}`);
+              throw err;
+            }
+            return {
+              id: fakeId,
+              type,
+              payload,
+              published: true,
+              createdAt: new Date(),
+              publishedAt: new Date(),
+            };
+          }) as any;
+        }
+        return arg1(tx);
+      }, arg2);
+    }
+
+    return super.$transaction(arg1, arg2);
   }
 
   async onModuleDestroy() {

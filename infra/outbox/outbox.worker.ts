@@ -58,62 +58,9 @@ export class OutboxWorker extends WorkerHost {
       }
         
       case 'ORDER_PLACED': {
-        // NOTE: We do NOT send the buyer a confirmation email here — payment has not been made yet.
-        // The ORDER_CONFIRMED_BUYER email is sent in PAYMENT_COMPLETED, after Paystack verifies the payment.
-        this.logger.log(`[Queue Worker] [ORDER_PLACED] Querying details for Order ID: ${payload.orderId}`);
-        const order = await this.prisma.order.findUnique({
-          where: { id: payload.orderId },
-          include: {
-            user: true,
-            shippingAddress: true,
-            items: {
-              include: {
-                vendorProduct: {
-                  include: {
-                    product: true,
-                    vendor: { include: { user: true } }
-                  }
-                }
-              }
-            }
-          }
-        });
-        
-        if (order) {
-          // Email to Vendors only (group items by vendor ID)
-          const vendorMap = new Map<string, typeof order.items>();
-          for (const item of order.items) {
-            const vendorId = item.vendorProduct.vendorId;
-            if (!vendorMap.has(vendorId)) {
-              vendorMap.set(vendorId, []);
-            }
-            vendorMap.get(vendorId)!.push(item);
-          }
-
-          for (const [vendorId, vendorItems] of vendorMap.entries()) {
-            const vendor = vendorItems[0].vendorProduct.vendor;
-            const vendorEmail = vendor.user.email;
-            const vendorItemsList = vendorItems.map(item => ({
-              name: item.vendorProduct.product.name,
-              quantity: item.quantity,
-              price: Number(item.unitPrice),
-            }));
-
-            await this.notificationsQueue.queueEmail(
-              vendorEmail,
-              'New Customer Order Received! 🎉',
-              'ORDER_RECEIVED_VENDOR',
-              {
-                orderId: order.id,
-                vendorBusinessName: vendor.businessName || 'Your Business',
-                items: vendorItemsList,
-                shippingAddress: order.shippingAddress 
-                  ? `${order.shippingAddress.street1}, ${order.shippingAddress.city}, ${order.shippingAddress.state}`
-                  : 'N/A',
-              }
-            );
-          }
-        }
+        // NOTE: We do NOT send any emails on ORDER_PLACED before payment is verified.
+        // Both ORDER_CONFIRMED_BUYER and ORDER_RECEIVED_VENDOR emails are sent in PAYMENT_COMPLETED.
+        this.logger.log(`[Queue Worker] [ORDER_PLACED] Order created: ${payload.orderId}. Awaiting payment verification.`);
         break;
       }
         
@@ -319,9 +266,9 @@ export class OutboxWorker extends WorkerHost {
         this.logger.log(`[Queue Worker] [PAYMENT_COMPLETED] Payment verified server-side. Reference: ${payload.reference}, Amount: ${payload.amount}`);
         this.paymentEventEmitter.emit('payment.completed', payload);
 
-        // Send ORDER_CONFIRMED_BUYER email now that payment is verified
+        // Send ORDER_CONFIRMED_BUYER and ORDER_RECEIVED_VENDOR emails now that payment is verified
         if (payload.purpose === 'ORDER' && payload.orderId) {
-          this.logger.log(`[Queue Worker] [PAYMENT_COMPLETED] Queuing order confirmation email for Order ID: ${payload.orderId}`);
+          this.logger.log(`[Queue Worker] [PAYMENT_COMPLETED] Queuing order emails for Order ID: ${payload.orderId}`);
           const paidOrder = await this.prisma.order.findUnique({
             where: { id: payload.orderId },
             include: {
@@ -330,7 +277,10 @@ export class OutboxWorker extends WorkerHost {
               items: {
                 include: {
                   vendorProduct: {
-                    include: { product: true }
+                    include: {
+                      product: true,
+                      vendor: { include: { user: true } }
+                    }
                   }
                 }
               }
@@ -338,6 +288,7 @@ export class OutboxWorker extends WorkerHost {
           });
 
           if (paidOrder) {
+            // 1. Email to Buyer
             const itemsList = paidOrder.items.map(item => ({
               name: item.vendorProduct.product.name,
               quantity: item.quantity,
@@ -360,6 +311,40 @@ export class OutboxWorker extends WorkerHost {
                   : 'N/A',
               }
             );
+
+            // 2. Email to Vendors (grouped by vendor)
+            const vendorMap = new Map<string, typeof paidOrder.items>();
+            for (const item of paidOrder.items) {
+              const vendorId = item.vendorProduct.vendorId;
+              if (!vendorMap.has(vendorId)) {
+                vendorMap.set(vendorId, []);
+              }
+              vendorMap.get(vendorId)!.push(item);
+            }
+
+            for (const [vendorId, vendorItems] of vendorMap.entries()) {
+              const vendor = vendorItems[0].vendorProduct.vendor;
+              const vendorEmail = vendor.user.email;
+              const vendorItemsList = vendorItems.map(item => ({
+                name: item.vendorProduct.product.name,
+                quantity: item.quantity,
+                price: Number(item.unitPrice),
+              }));
+
+              await this.notificationsQueue.queueEmail(
+                vendorEmail,
+                'New Customer Order Received! 🎉',
+                'ORDER_RECEIVED_VENDOR',
+                {
+                  orderId: paidOrder.id,
+                  vendorBusinessName: vendor.businessName || 'Your Business',
+                  items: vendorItemsList,
+                  shippingAddress: paidOrder.shippingAddress 
+                    ? `${paidOrder.shippingAddress.street1}, ${paidOrder.shippingAddress.city}, ${paidOrder.shippingAddress.state}`
+                    : 'N/A',
+                }
+              );
+            }
           }
         }
         break;

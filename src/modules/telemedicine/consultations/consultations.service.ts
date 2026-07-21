@@ -370,7 +370,7 @@ export class ConsultationsService implements OnModuleInit {
 
     const now = new Date();
 
-    if (consultation.status === 'LIVE' || consultation.status === 'CONFIRMED') {
+    if (consultation.status === 'LIVE' || consultation.status === 'CONFIRMED' || consultation.status === 'SCHEDULED') {
       return this.prisma.chatMessage.create({
         data: {
           consultationId,
@@ -448,7 +448,7 @@ export class ConsultationsService implements OnModuleInit {
       );
     }
 
-    const { page = 1, limit = 10 } = pagination;
+    const { page = 1, limit = 100 } = pagination;
     const skip = (page - 1) * limit;
 
     return this.prisma.chatMessage.findMany({

@@ -122,7 +122,8 @@ export class MarketplaceService {
       1200,
     );
   }
-
+  
+  
   async getListingDetails(idOrSlug: string) {
     return this.cacheService.getOrSet(
       CacheKeys.listing(idOrSlug),
