@@ -126,7 +126,7 @@ export class AnimalsService {
     const baseSlug = generateSlug(dto.name || 'animal');
     const slug = await uniqueSlug(baseSlug, async (s) => {
       const exists = await this.prisma.animal.findFirst({
-        where: { slug: s },
+        where: { slug: s, deletedAt: null },
       });
       return !!exists;
     });
@@ -215,6 +215,7 @@ export class AnimalsService {
   async getUserAnimals(userId: string) {
     const animals = await this.prisma.animal.findMany({
       where: {
+        deletedAt: null,
         ownerships: {
           some: {
             userId: userId,
@@ -233,6 +234,7 @@ export class AnimalsService {
   async getAnimalById(currentUser: any, idOrSlug: string) {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
       include: {
@@ -275,6 +277,7 @@ export class AnimalsService {
   async deleteAnimal(userId: string, idOrSlug: string) {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
     });
@@ -289,11 +292,15 @@ export class AnimalsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.animalOwnership.deleteMany({
-        where: { animalId: animal.id },
+      await tx.animalOwnership.updateMany({
+        where: { animalId: animal.id, endDate: null },
+        data: { endDate: new Date(), isActive: false },
       });
-      const deletedAnimal = await tx.animal.delete({
+      const deletedAnimal = await tx.animal.update({
         where: { id: animal.id },
+        data: {
+          deletedAt: new Date(),
+        },
         include: {
           photoMedia: true,
         },
@@ -305,6 +312,7 @@ export class AnimalsService {
   async updateAnimal(currentUser: any, idOrSlug: string, dto: UpdateAnimalDto) {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
     });
@@ -333,7 +341,7 @@ export class AnimalsService {
       const baseSlug = generateSlug(dto.name);
       slug = await uniqueSlug(baseSlug, async (s) => {
         const exists = await this.prisma.animal.findFirst({
-          where: { slug: s, id: { not: animal.id } },
+          where: { slug: s, id: { not: animal.id }, deletedAt: null },
         });
         return !!exists;
       });
@@ -465,6 +473,7 @@ export class AnimalsService {
   async isOwner(userId: string, idOrSlug: string): Promise<boolean> {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: idOrSlug }, { slug: idOrSlug }],
       },
       include: {
@@ -482,6 +491,7 @@ export class AnimalsService {
   async addHealthLog(currentUser: any, animalIdOrSlug: string, dto: any) {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: animalIdOrSlug }, { slug: animalIdOrSlug }],
       },
     });
@@ -514,6 +524,7 @@ export class AnimalsService {
   async getHealthLogs(currentUser: any, animalIdOrSlug: string) {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: animalIdOrSlug }, { slug: animalIdOrSlug }],
       },
     });
@@ -544,6 +555,7 @@ export class AnimalsService {
   ) {
     const animal = await this.prisma.animal.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ id: animalIdOrSlug }, { slug: animalIdOrSlug }],
       },
     });

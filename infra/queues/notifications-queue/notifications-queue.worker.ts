@@ -45,8 +45,8 @@ export class NotificationsQueueWorker extends WorkerHost {
           }
         }
         
-        // Compile HTML template
-        const { subject: templateSubject, html } = getEmailTemplate(template, context);
+        // Compile HTML & Plain Text template
+        const { subject: templateSubject, html, text } = getEmailTemplate(template, context);
         const finalSubject = customSubject || templateSubject;
 
         // Resolve Resend credentials and from address
@@ -92,9 +92,10 @@ ${html}
                   },
                   body: JSON.stringify({
                     from: rawFrom,
-                    to: [to],
+                    to: Array.isArray(to) ? to : [to],
                     subject: finalSubject,
                     html: html,
+                    text: text,
                   }),
                   signal: controller.signal,
                 });

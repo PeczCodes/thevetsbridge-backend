@@ -252,6 +252,7 @@ model Animal {
   organizationId     String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
+  deletedAt          DateTime?
   sex                AnimalSex         @default(UNKNOWN)
   color              String?
   birthDate          DateTime?
@@ -274,6 +275,7 @@ model Animal {
 
   @@index([organizationId])
   @@index([status])
+  @@index([deletedAt])
 }
 
 model AnimalOwnership {
