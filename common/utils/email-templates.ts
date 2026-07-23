@@ -33,10 +33,8 @@ const baseLayout = (content: string) => `
     .wrapper { width: 100%; background-color: #f8fafc; padding: 40px 16px; box-sizing: border-box; }
     .main-card { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); }
     
-    .header { background-color: #ffffff; padding: 28px 36px; border-bottom: 2px solid #f1f5f9; text-align: left; }
-    .brand-logo { font-size: 24px; font-weight: 700; color: #0f172a; text-decoration: none; letter-spacing: -0.5px; }
-    .brand-logo .accent { color: #4A90E2; }
-    .brand-tag { display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background-color: #eff6ff; color: #2563eb; padding: 3px 8px; border-radius: 12px; margin-left: 8px; vertical-align: middle; }
+    .header { background-color: #ffffff; padding: 24px 36px; border-bottom: 2px solid #f1f5f9; text-align: left; }
+    .brand-logo { font-size: 24px; font-weight: 700; color: #4A90E2; text-decoration: none; letter-spacing: -0.5px; }
     
     .content { padding: 36px; line-height: 1.6; }
     .content h2 { color: #0f172a; font-size: 20px; font-weight: 700; margin-top: 0; margin-bottom: 16px; letter-spacing: -0.3px; }
@@ -68,8 +66,22 @@ const baseLayout = (content: string) => `
   <div class="wrapper">
     <div class="main-card">
       <div class="header">
-        <span class="brand-logo">Vets<span class="accent">Bridge</span></span>
-        <span class="brand-tag">Healthcare</span>
+        <table border="0" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="vertical-align: middle; padding-right: 10px;">
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block;">
+                <rect width="32" height="32" rx="8" fill="#4A90E2"/>
+                <path d="M16 7.5C14.62 7.5 13.5 8.62 13.5 10C13.5 11.38 14.62 12.5 16 12.5C17.38 12.5 18.5 11.38 18.5 10C18.5 8.62 17.38 7.5 16 7.5Z" fill="white"/>
+                <path d="M10 11.5C8.9 11.5 8 12.4 8 13.5C8 14.6 8.9 15.5 10 15.5C11.1 15.5 12 14.6 12 13.5C12 12.4 11.1 11.5 10 11.5Z" fill="white"/>
+                <path d="M22 11.5C20.9 11.5 20 12.4 20 13.5C20 14.6 20.9 15.5 22 15.5C23.1 15.5 24 14.6 24 13.5C24 12.4 23.1 11.5 22 11.5Z" fill="white"/>
+                <path d="M16 14.5C12.7 14.5 10 16.8 10 19.5C10 21.2 11.5 23.5 16 23.5C20.5 23.5 22 21.2 22 19.5C22 16.8 19.3 14.5 16 14.5Z" fill="white"/>
+              </svg>
+            </td>
+            <td style="vertical-align: middle;">
+              <span class="brand-logo">VetsBridge</span>
+            </td>
+          </tr>
+        </table>
       </div>
       <div class="content">
         ${content}
