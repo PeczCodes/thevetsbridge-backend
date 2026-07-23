@@ -269,6 +269,36 @@ export class AppointmentLifecycleService {
           consultationUpdateData.status = 'COMPLETED';
           consultationUpdateData.endedAt = new Date();
 
+          // Increment vet's totalConsults counter and update earnings balance
+          if (appointment.vetId) {
+            await tx.vetProfile.update({
+              where: { id: appointment.vetId },
+              data: { totalConsults: { increment: 1 } },
+            }).catch((err: any) => this.logger.warn(`Could not increment totalConsults: ${err.message}`));
+          }
+
+          if (appointment.vet?.userId) {
+            const grossFee = Number(appointment.amount || appointment.consultationFee || appointment.vet.consultationFee || 45000);
+            const commissionSetting = await tx.systemSetting.findUnique({
+              where: { key: 'commission_rate' },
+            });
+            const commissionRate = parseFloat(commissionSetting?.value || '5');
+            const netEarnings = grossFee * ((100 - commissionRate) / 100);
+
+            await tx.userBalance.upsert({
+              where: { userId: appointment.vet.userId },
+              create: {
+                userId: appointment.vet.userId,
+                totalEarned: netEarnings,
+                availableBalance: netEarnings,
+              },
+              update: {
+                totalEarned: { increment: netEarnings },
+                availableBalance: { increment: netEarnings },
+              },
+            }).catch((err: any) => this.logger.warn(`Could not update UserBalance: ${err.message}`));
+          }
+
           // Notify both users
           this.emitToRoom(`consultation:${appointment.consultation?.id}`, 'consultation.completed', {
             appointmentId: appointment.id,

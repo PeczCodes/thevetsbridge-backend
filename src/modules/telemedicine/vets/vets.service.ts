@@ -65,7 +65,23 @@ export class VetsService {
     const userBalance = await this.prisma.userBalance.findUnique({
       where: { userId: vetProfile.userId },
     });
-    const totalEarnings = userBalance ? Number(userBalance.totalEarned) : 0;
+    let totalEarnings = userBalance ? Number(userBalance.totalEarned) : 0;
+    if (totalEarnings === 0 && totalConsults > 0) {
+      const commissionSetting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'commission_rate' },
+      });
+      const commissionRate = parseFloat(commissionSetting?.value || '5');
+      const commissionFactor = (100 - commissionRate) / 100;
+
+      const completedConsultations = await this.prisma.consultation.findMany({
+        where: { vetId: vetProfileId, status: 'COMPLETED' },
+        include: { appointment: true },
+      });
+      totalEarnings = completedConsultations.reduce((sum, c) => {
+        const grossFee = Number(vetProfile.consultationFee || 45000);
+        return sum + (grossFee * commissionFactor);
+      }, 0);
+    }
 
     // Today's earnings (ledger credits)
     const todayEarningsSum = await this.prisma.ledgerEntry.aggregate({
@@ -228,6 +244,18 @@ export class VetsService {
           },
         });
 
+        const vetIds = vets.map((v) => v.id);
+        const completedGroup = await this.prisma.consultation.groupBy({
+          by: ['vetId'],
+          where: { vetId: { in: vetIds }, status: 'COMPLETED' },
+          _count: { _all: true },
+        });
+
+        const completedMap = new Map<string, number>();
+        completedGroup.forEach((g) => {
+          if (g.vetId) completedMap.set(g.vetId, g._count._all);
+        });
+
         return vets.map((vet) => ({
           id: vet.id,
           slug: vet.slug || vet.id,
@@ -235,7 +263,7 @@ export class VetsService {
           specialization: vet.specializations[0] || 'GENERAL_PRACTICE',
           consultationFee: vet.consultationFee ? Number(vet.consultationFee) : null,
           rating: vet.rating,
-          totalConsults: vet.totalConsults,
+          totalConsults: Math.max(vet.totalConsults || 0, completedMap.get(vet.id) || 0),
           verificationStatus: vet.status === verifiedOnly && 'APPROVED',
           isAvailable: vet.isAvailable,
           user: {
@@ -283,6 +311,10 @@ export class VetsService {
           throw new NotFoundException('Veterinarian profile not found');
         }
 
+        const completedCount = await this.prisma.consultation.count({
+          where: { vetId: vet.id, status: 'COMPLETED' },
+        });
+
         return {
           id: vet.id,
           slug: vet.slug || vet.id,
@@ -296,7 +328,7 @@ export class VetsService {
           qualifications: vet.qualifications,
           languages: vet.languages,
           rating: vet.rating,
-          totalConsults: vet.totalConsults,
+          totalConsults: Math.max(vet.totalConsults || 0, completedCount),
           user: {
             name: `${vet.user.firstName} ${vet.user.lastName}`,
             email: vet.user.email,
