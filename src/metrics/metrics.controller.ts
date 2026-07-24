@@ -3,6 +3,7 @@ import { MetricsService } from './metrics.service';
 import { Public } from '../modules/identity/auth/decorators/public.decorator';
 import * as express from 'express';
 import { CircuitBreakerService } from '../../infra/circuit-breaker/circuit-breaker.service';
+import { register } from 'prom-client';
 
 @Controller()
 export class MetricsController {
@@ -44,8 +45,12 @@ export class MetricsController {
   @Public()
   @Get('metrics')
   async getMetrics(@Res() res: express.Response) {
-    const metricsText = await this.metricsService.getMetricsAsText();
-    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    return res.status(HttpStatus.OK).send(metricsText);
+    // Serve metrics from the prom-client Prometheus registry
+    const metricsStr = await register.metrics();
+    res.setHeader('Content-Type', register.contentType);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.status(HttpStatus.OK).send(metricsStr);
   }
 }

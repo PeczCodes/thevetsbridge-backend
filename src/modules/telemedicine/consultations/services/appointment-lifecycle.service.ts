@@ -16,6 +16,13 @@ import { ConfigService } from '@nestjs/config';
 import { Appointment, AppointmentStatus, ConsultationStatus, LedgerAccountType } from '@prisma/client';
 import { LedgerService } from '../../../payments/services/ledger.service';
 
+import { Optional } from '@nestjs/common';
+import { MonitoringService } from '../../../../monitoring/monitoring.service';
+import {
+  APPOINTMENTS_BOOKED_TOTAL,
+  APPOINTMENTS_CANCELLED_TOTAL,
+} from '../../../../monitoring/metrics/business.metrics';
+
 @Injectable()
 export class AppointmentLifecycleService {
   private readonly logger = new Logger(AppointmentLifecycleService.name);
@@ -29,6 +36,7 @@ export class AppointmentLifecycleService {
     private readonly lifecycleQueue: Queue,
     private readonly configService: ConfigService,
     private readonly ledgerService: LedgerService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
   /**
@@ -151,6 +159,7 @@ export class AppointmentLifecycleService {
               title: 'New Consultation Request',
               body: `Client ${clientName} requested a consultation for ${appointment.animal.name} at ${formattedTime}.`,
               type: 'APPOINTMENT',
+              data: { targetRole: 'VET', appointmentId: appointment.id },
             },
           });
           break;
@@ -159,6 +168,7 @@ export class AppointmentLifecycleService {
         case 'CONFIRMED': {
           // Occurs when vet accepts the request (or when rescheduling is agreed)
           consultationUpdateData.status = 'CONFIRMED';
+          this.monitoringService?.incrementCounter(APPOINTMENTS_BOOKED_TOTAL, 1, { type: appointment.type });
           
           // If we had a slot associated, lock it
           if (appointment.slotId) {
@@ -202,6 +212,7 @@ export class AppointmentLifecycleService {
               title: 'Consultation Confirmed',
               body: `${vetName} has confirmed your consultation scheduled for ${scheduledTime}.`,
               type: 'APPOINTMENT',
+              data: { targetRole: 'CUSTOMER', appointmentId: appointment.id },
             },
           });
 
@@ -331,6 +342,7 @@ export class AppointmentLifecycleService {
 
           const cancelledBy = metadata?.cancelledBy || 'SYSTEM';
           const cancelReason = metadata?.cancelReason || 'Cancelled';
+          this.monitoringService?.incrementCounter(APPOINTMENTS_CANCELLED_TOTAL, 1, { reason: cancelReason });
 
           updateData.cancelledBy = cancelledBy;
           updateData.cancelledAt = new Date();

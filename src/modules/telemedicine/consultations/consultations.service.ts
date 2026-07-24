@@ -37,6 +37,15 @@ import {
   SubmitFeedbackDto,
 } from './dto/consultation-lifecycle.dto';
 
+import { Optional } from '@nestjs/common';
+import { MonitoringService } from '../../../monitoring/monitoring.service';
+import {
+  TELEMEDICINE_CONSULTATIONS_CREATED_TOTAL,
+  TELEMEDICINE_CONSULTATIONS_STARTED_TOTAL,
+  TELEMEDICINE_CONSULTATIONS_COMPLETED_TOTAL,
+  TELEMEDICINE_CONSULTATIONS_CANCELLED_TOTAL,
+} from '../../../monitoring/metrics/business.metrics';
+
 @Injectable()
 export class ConsultationsService implements OnModuleInit {
   private readonly logger = new Logger(ConsultationsService.name);
@@ -86,6 +95,7 @@ export class ConsultationsService implements OnModuleInit {
     private readonly lifecycleQueue: Queue,
     @Inject(forwardRef(() => AppointmentLifecycleService))
     private readonly appointmentLifecycleService: AppointmentLifecycleService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
   async scheduleConsultation(customerId: string, dto: ScheduleConsultationDto) {
@@ -162,6 +172,8 @@ export class ConsultationsService implements OnModuleInit {
           files: dto.files ? (dto.files as any) : Prisma.JsonNull,
         },
       });
+
+      this.monitoringService?.incrementCounter(TELEMEDICINE_CONSULTATIONS_CREATED_TOTAL, 1, { type: dto.mode });
 
       return {
         ...consultation,
@@ -1347,6 +1359,7 @@ export class ConsultationsService implements OnModuleInit {
         consultation.appointmentId,
         'IN_PROGRESS',
       );
+      this.monitoringService?.incrementCounter(TELEMEDICINE_CONSULTATIONS_STARTED_TOTAL, 1, { type: consultation.mode });
       return this.generateLiveKitToken(userId, consultationId);
     }
 
@@ -1367,6 +1380,7 @@ export class ConsultationsService implements OnModuleInit {
         consultation.appointmentId,
         'COMPLETED',
       );
+      this.monitoringService?.incrementCounter(TELEMEDICINE_CONSULTATIONS_COMPLETED_TOTAL, 1, { type: consultation.mode });
       return { success: true };
     }
 

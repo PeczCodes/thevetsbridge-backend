@@ -20,8 +20,14 @@ import { RedisService } from '../../../../infra/redis/redis.service';
 import { EncryptionService } from '../../../../infra/security/encryption.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus, Optional } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { MonitoringService } from '../../../monitoring/monitoring.service';
+import {
+  AUTH_LOGINS_TOTAL,
+  AUTH_REGISTRATIONS_TOTAL,
+  AUTH_JWT_REFRESHES_TOTAL,
+} from '../../../monitoring/metrics/auth.metrics';
 
 @Injectable()
 export class AuthService {
@@ -37,6 +43,7 @@ export class AuthService {
     private readonly cacheService: CacheService,
     private readonly redisService: RedisService,
     private readonly encryptionService: EncryptionService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
   async register(
@@ -149,6 +156,9 @@ export class AuthService {
       context,
     );
 
+    const roleLabel = registerDto.vetProfile ? 'VET' : registerDto.vendorProfile ? 'VENDOR' : 'CUSTOMER';
+    this.monitoringService?.incrementCounter(AUTH_REGISTRATIONS_TOTAL, 1, { role: roleLabel });
+
     return {
       user: {
         ...result,
@@ -162,16 +172,19 @@ export class AuthService {
   async login(loginDto: LoginDto, context?: { ip?: string; ua?: string }) {
     const user = await this.usersService.findByEmail(loginDto.email);
     if (!user) {
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'failure', method: 'password' });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (!user.isActive) {
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'deactivated', method: 'password' });
       throw new UnauthorizedException(
         'Account is deactivated. Please contact support.',
       );
     }
 
     if (user.lockoutUntil && user.lockoutUntil > new Date()) {
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'locked', method: 'password' });
       const remainingTime = Math.ceil(
         (user.lockoutUntil.getTime() - Date.now()) / 60000,
       );
@@ -181,6 +194,7 @@ export class AuthService {
     }
 
     if (!user.passwordHash) {
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'google_only', method: 'password' });
       throw new UnauthorizedException(
         "This account currently uses Google Sign-In. Add a password from your account security settings if you'd like to sign in with email and password.",
       );
@@ -191,6 +205,7 @@ export class AuthService {
       loginDto.password,
     );
     if (!isPasswordValid) {
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'failure', method: 'password' });
       const failedAttempts = user.failedLoginAttempts + 1;
       const lockoutUntil =
         failedAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
@@ -232,6 +247,8 @@ export class AuthService {
       context,
     );
 
+    this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'success', method: 'password' });
+
     return {
       user: {
         ...result,
@@ -243,7 +260,14 @@ export class AuthService {
   }
 
   async refresh(token: string, context?: { ip?: string; ua?: string }) {
-    return this.tokenService.issueFreshAuthTokens(token, context);
+    try {
+      const res = await this.tokenService.issueFreshAuthTokens(token, context);
+      this.monitoringService?.incrementCounter(AUTH_JWT_REFRESHES_TOTAL, 1, { status: 'success' });
+      return res;
+    } catch (err) {
+      this.monitoringService?.incrementCounter(AUTH_JWT_REFRESHES_TOTAL, 1, { status: 'failure' });
+      throw err;
+    }
   }
 
   async checkEmail(email: string) {

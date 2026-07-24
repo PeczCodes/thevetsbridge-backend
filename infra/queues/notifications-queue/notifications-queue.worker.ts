@@ -1,11 +1,18 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import { getEmailTemplate } from '../../../common/utils/email-templates';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CircuitBreakerService } from '../../circuit-breaker/circuit-breaker.service';
 import { ExternalServiceException } from '../../circuit-breaker/exceptions/external-service.exception';
+import { MonitoringService } from '../../../src/monitoring/monitoring.service';
+import {
+  EMAILS_SENT_TOTAL,
+  EMAIL_FAILURES_TOTAL,
+  NOTIFICATIONS_DELIVERED_TOTAL,
+  NOTIFICATIONS_FAILED_TOTAL,
+} from '../../../src/monitoring/metrics/business.metrics';
 
 @Processor('notifications')
 export class NotificationsQueueWorker extends WorkerHost {
@@ -15,6 +22,7 @@ export class NotificationsQueueWorker extends WorkerHost {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly circuitBreakerService: CircuitBreakerService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {
     super();
   }
@@ -26,6 +34,7 @@ export class NotificationsQueueWorker extends WorkerHost {
     switch (name) {
       case 'send-push':
         this.logger.log(`[Queue Worker] [PUSH] Sending push notification to User ID ${data.userId} | Title: "${data.title}" | Body: "${data.body}"`);
+        this.monitoringService?.incrementCounter(NOTIFICATIONS_DELIVERED_TOTAL, 1, { role: data?.data?.targetRole || 'unknown' });
         break;
       
       case 'send-email': {
@@ -108,6 +117,7 @@ ${html}
           if (!response.ok) {
             const errBody = await response.text();
             this.logger.error(`[Queue Worker] [EMAIL] Resend API responded with error ${response.status}: ${errBody}`);
+            this.monitoringService?.incrementCounter(EMAIL_FAILURES_TOTAL, 1, { template: template || 'unknown' });
             throw new ExternalServiceException({
               provider: 'resend',
               message: `Resend API error (${response.status}): ${errBody}`,
@@ -118,11 +128,13 @@ ${html}
 
           const resData: any = await response.json();
           this.logger.log(`[Queue Worker] [EMAIL] Email successfully sent via Resend to ${to}. Email ID: ${resData.id}`);
+          this.monitoringService?.incrementCounter(EMAILS_SENT_TOTAL, 1, { template: template || 'unknown' });
         } catch (error: any) {
           this.logger.error(`[Queue Worker] [EMAIL] Failed to send email to ${to} via Resend. Retrying job. Error: ${error.message}`);
           if (error instanceof ExternalServiceException) {
             throw error;
           }
+          this.monitoringService?.incrementCounter(EMAIL_FAILURES_TOTAL, 1, { template: template || 'unknown' });
           const isAbort = error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('Timed out');
           throw new ExternalServiceException({
             provider: 'resend',
@@ -137,6 +149,7 @@ ${html}
 
       default:
         this.logger.warn(`[Queue Worker] Unsupported notification job name: ${name}`);
+        this.monitoringService?.incrementCounter(NOTIFICATIONS_FAILED_TOTAL, 1, { role: 'unknown' });
     }
 
     return { success: true, jobId: job.id };

@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infra/prisma/prisma.service';
 import { HashingService } from '../identity/auth/services/hash.service';
 import { JwtService } from '@nestjs/jwt';
@@ -7,43 +8,6 @@ import { CacheService } from '../../../infra/cache/cache.service';
 
 @Injectable()
 export class AdminService {
-  private flaggedItems = [
-    {
-      id: 'flagged-1',
-      type: 'listing' as const,
-      content: 'Extra-Strength Vet Steroids (Promote rapid growth)',
-      reporter: 'Dr. Sarah Jenkins',
-      reason:
-        'Selling regulated prescription steroids without license validation.',
-      reportCount: 4,
-      status: 'PENDING',
-      createdAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    },
-    {
-      id: 'flagged-2',
-      type: 'review' as const,
-      content:
-        'This vet is a complete fraud! They charge 10x the normal fee and should be stripped of their license!',
-      reporter: 'Anonymous User',
-      reason:
-        'Contains target harassment and defamatory language without proof.',
-      reportCount: 3,
-      status: 'PENDING',
-      createdAt: new Date(Date.now() - 5 * 3600 * 1000).toISOString(),
-    },
-    {
-      id: 'flagged-3',
-      type: 'comment' as const,
-      content:
-        'Check out my pet shop website at http://spammy-pets.xyz for 90% off all dog foods right now!!!',
-      reporter: 'System Bot Filter',
-      reason: 'Spam URL link sharing in consultation chat.',
-      reportCount: 12,
-      status: 'PENDING',
-      createdAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    },
-  ];
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly hashingService: HashingService,
@@ -52,17 +16,155 @@ export class AdminService {
     private readonly cacheService: CacheService,
   ) {}
 
-  async getStats() {
+  async getStats(range?: string) {
+    const now = new Date();
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const firstDayOfMonth = new Date(
-      new Date().getFullYear(),
-      new Date().getMonth(),
-      1,
-    );
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const normRange = (range || 'all').toLowerCase().trim();
+    let rangeDateFilter: any = null;
+
+    if (normRange === 'today') {
+      rangeDateFilter = { gte: todayStart, lte: todayEnd };
+    } else if (normRange === '7d') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      rangeDateFilter = { gte: d };
+    } else if (normRange === '30d' || normRange === 'last 30 days') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      rangeDateFilter = { gte: d };
+    }
+
+    const validPaymentStatuses: any[] = ['SUCCEEDED', 'PAID_IN_ESCROW', 'RELEASED'];
+
+    // Payment filter based on range
+    const paymentWhereClause: any = {
+      status: { in: validPaymentStatuses },
+    };
+    if (rangeDateFilter) {
+      paymentWhereClause.OR = [
+        { paidAt: rangeDateFilter },
+        { createdAt: rangeDateFilter },
+      ];
+    }
+
+    // Appointment completed filter based on range
+    const completedApptWhere: any = { status: 'COMPLETED' };
+    if (rangeDateFilter) {
+      completedApptWhere.createdAt = rangeDateFilter;
+    }
+
+    // Dynamic Chart Breakdown based on selected range
+    const revenueHistoryProms: Promise<{ name: string; revenue: number }>[] = [];
+
+    if (normRange === 'today') {
+      // 6 time slots today (4-hour intervals)
+      const hours = [0, 4, 8, 12, 16, 20];
+      const labels = ['12 AM', '4 AM', '8 AM', '12 PM', '4 PM', '8 PM'];
+
+      for (let i = 0; i < hours.length; i++) {
+        const start = new Date(todayStart);
+        start.setHours(hours[i], 0, 0, 0);
+        const end = new Date(todayStart);
+        end.setHours(hours[i] + 3, 59, 59, 999);
+
+        revenueHistoryProms.push(
+          this.prisma.payment.aggregate({
+            where: {
+              status: { in: validPaymentStatuses },
+              OR: [
+                { paidAt: { gte: start, lte: end } },
+                { createdAt: { gte: start, lte: end } },
+              ],
+            },
+            _sum: { amount: true },
+          }).then((res) => ({
+            name: labels[i],
+            revenue: Number(res._sum.amount || 0),
+          }))
+        );
+      }
+    } else if (normRange === '7d') {
+      // Last 7 days breakdown
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      for (let i = 6; i >= 0; i--) {
+        const start = new Date();
+        start.setDate(now.getDate() - i);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+
+        revenueHistoryProms.push(
+          this.prisma.payment.aggregate({
+            where: {
+              status: { in: validPaymentStatuses },
+              OR: [
+                { paidAt: { gte: start, lte: end } },
+                { createdAt: { gte: start, lte: end } },
+              ],
+            },
+            _sum: { amount: true },
+          }).then((res) => ({
+            name: dayNames[start.getDay()],
+            revenue: Number(res._sum.amount || 0),
+          }))
+        );
+      }
+    } else if (normRange === '30d' || normRange === 'last 30 days') {
+      // 5-week intervals for 30 days
+      for (let i = 4; i >= 0; i--) {
+        const start = new Date();
+        start.setDate(now.getDate() - (i * 6 + 6));
+        start.setHours(0, 0, 0, 0);
+        const end = new Date();
+        end.setDate(now.getDate() - (i * 6));
+        end.setHours(23, 59, 59, 999);
+
+        revenueHistoryProms.push(
+          this.prisma.payment.aggregate({
+            where: {
+              status: { in: validPaymentStatuses },
+              OR: [
+                { paidAt: { gte: start, lte: end } },
+                { createdAt: { gte: start, lte: end } },
+              ],
+            },
+            _sum: { amount: true },
+          }).then((res) => ({
+            name: `W${5 - i}`,
+            revenue: Number(res._sum.amount || 0),
+          }))
+        );
+      }
+    } else {
+      // Default / All: Last 6 months breakdown
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      for (let i = 5; i >= 0; i--) {
+        const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+
+        revenueHistoryProms.push(
+          this.prisma.payment.aggregate({
+            where: {
+              status: { in: validPaymentStatuses },
+              OR: [
+                { paidAt: { gte: start, lte: end } },
+                { createdAt: { gte: start, lte: end } },
+              ],
+            },
+            _sum: { amount: true },
+          }).then((res) => ({
+            name: monthNames[start.getMonth()],
+            revenue: Number(res._sum.amount || 0),
+          }))
+        );
+      }
+    }
 
     const [
       totalUsers,
@@ -79,6 +181,7 @@ export class AdminService {
       totalRevenueSum,
       todayRevenueSum,
       monthlyRevenueSum,
+      revenueHistory,
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({
@@ -107,37 +210,48 @@ export class AdminService {
       this.prisma.appointment.count({
         where: { status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS'] } },
       }),
-      this.prisma.appointment.count({
-        where: {
-          status: 'COMPLETED',
-          scheduledStart: { gte: todayStart, lte: todayEnd },
-        },
-      }),
+      this.prisma.appointment.count({ where: completedApptWhere }),
       this.prisma.product.count(),
       this.prisma.vendorProduct.count({ where: { isActive: true } }),
       this.prisma.payment.aggregate({
-        where: { status: 'SUCCEEDED' },
+        where: paymentWhereClause,
         _sum: { amount: true },
       }),
       this.prisma.payment.aggregate({
         where: {
-          status: 'SUCCEEDED',
-          paidAt: { gte: todayStart, lte: todayEnd },
+          status: { in: validPaymentStatuses },
+          OR: [
+            { paidAt: { gte: todayStart, lte: todayEnd } },
+            { createdAt: { gte: todayStart, lte: todayEnd } },
+          ],
         },
         _sum: { amount: true },
       }),
       this.prisma.payment.aggregate({
         where: {
-          status: 'SUCCEEDED',
-          paidAt: { gte: firstDayOfMonth },
+          status: { in: validPaymentStatuses },
+          OR: [
+            { paidAt: { gte: firstDayOfMonth } },
+            { createdAt: { gte: firstDayOfMonth } },
+          ],
         },
         _sum: { amount: true },
       }),
+      Promise.all(revenueHistoryProms),
     ]);
+
+    const commissionSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'commission_rate' },
+    });
+    const commissionRate = parseFloat(commissionSetting?.value || '5');
 
     const totalRevenue = Number(totalRevenueSum._sum.amount || 0);
     const todayRevenue = Number(todayRevenueSum._sum.amount || 0);
     const monthlyRevenue = Number(monthlyRevenueSum._sum.amount || 0);
+
+    const netRevenue = Math.round(totalRevenue * (commissionRate / 100));
+    const todayNetRevenue = Math.round(todayRevenue * (commissionRate / 100));
+    const monthlyNetRevenue = Math.round(monthlyRevenue * (commissionRate / 100));
 
     return {
       stats: {
@@ -153,8 +267,14 @@ export class AdminService {
         totalMarketplaceItems,
         activeListings,
         totalRevenue,
+        netRevenue,
+        commissionRate,
         todayRevenue,
+        todayNetRevenue,
         monthlyRevenue,
+        monthlyNetRevenue,
+        revenueHistory,
+        range: normRange,
         pendingListings: 0,
         flaggedContent: 0,
         urgentTickets: 0,
@@ -212,26 +332,6 @@ export class AdminService {
     }));
 
     return { transactions };
-  }
-
-  async getFlaggedContent() {
-    return {
-      flaggedItems: this.flaggedItems.filter(
-        (item) => item.status === 'PENDING',
-      ),
-    };
-  }
-
-  async resolveFlaggedContent(id: string, action: 'KEEP' | 'DELETE') {
-    const item = this.flaggedItems.find((i) => i.id === id);
-    if (!item) {
-      throw new NotFoundException('Flagged item not found');
-    }
-    item.status = action === 'KEEP' ? 'RESOLVED_KEEP' : 'RESOLVED_DELETE';
-    return {
-      success: true,
-      message: `Item has been moderated with action: ${action}`,
-    };
   }
 
   async getUsers(search?: string, status?: string, page = 1, limit = 100) {
@@ -400,11 +500,21 @@ export class AdminService {
     if (status && status !== 'ALL') {
       where.status = status;
     }
-    return this.prisma.vendorProfile.findMany({
+    const vendors = await this.prisma.vendorProfile.findMany({
       where,
-      include: { user: true },
+      include: {
+        user: true,
+        _count: {
+          select: { products: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
+
+    return vendors.map((v) => ({
+      ...v,
+      totalListings: v._count?.products || 0,
+    }));
   }
 
   async verifyVendor(vendorId: string, status: any, rejectionReason?: string) {
@@ -522,21 +632,28 @@ export class AdminService {
     ];
     const monthlyDataMap: Record<
       string,
-      { month: string; users: number; count: number; amount: number }
+      { key: string; month: string; users: number; count: number; amount: number }
     > = {};
 
     const tempDate = new Date(startDate);
     const currentDate = new Date();
     while (tempDate <= currentDate) {
       const monthStr = monthNames[tempDate.getMonth()];
-      monthlyDataMap[monthStr] = {
-        month: monthStr,
+      const yearStr = String(tempDate.getFullYear()).slice(-2);
+      const key = `${tempDate.getFullYear()}-${String(tempDate.getMonth() + 1).padStart(2, '0')}`;
+      const label = monthsLimit > 6 ? `${monthStr} '${yearStr}` : monthStr;
+
+      monthlyDataMap[key] = {
+        key,
+        month: label,
         users: 0,
         count: 0,
         amount: 0,
       };
       tempDate.setMonth(tempDate.getMonth() + 1);
     }
+
+    const successfulStatuses = ['SUCCEEDED', 'PAID_IN_ESCROW', 'RELEASED'];
 
     // DB aggregations instead of unbounded in-memory loading
     const [
@@ -545,29 +662,29 @@ export class AdminService {
       paymentsResult,
       topVetsRaw,
       totalUsers,
-      totalRevenueAgg,
+      rangePaymentAgg,
       totalConsultations,
-      paymentsCountResult,
+      vendorProducts,
     ] = await Promise.all([
       this.prisma.$queryRaw<any[]>`
-        SELECT TO_CHAR("createdAt", 'Mon') AS month, COUNT(*)::int AS count
+        SELECT TO_CHAR("createdAt", 'YYYY-MM') AS month_key, COUNT(*)::int AS count
         FROM "User"
         WHERE "createdAt" >= ${startDate}
-        GROUP BY TO_CHAR("createdAt", 'Mon'), DATE_TRUNC('month', "createdAt")
+        GROUP BY TO_CHAR("createdAt", 'YYYY-MM'), DATE_TRUNC('month', "createdAt")
         ORDER BY DATE_TRUNC('month', "createdAt")
       `,
       this.prisma.$queryRaw<any[]>`
-        SELECT TO_CHAR("createdAt", 'Mon') AS month, COUNT(*)::int AS count
+        SELECT TO_CHAR("createdAt", 'YYYY-MM') AS month_key, COUNT(*)::int AS count
         FROM "Appointment"
         WHERE "createdAt" >= ${startDate}
-        GROUP BY TO_CHAR("createdAt", 'Mon'), DATE_TRUNC('month', "createdAt")
+        GROUP BY TO_CHAR("createdAt", 'YYYY-MM'), DATE_TRUNC('month', "createdAt")
         ORDER BY DATE_TRUNC('month', "createdAt")
       `,
       this.prisma.$queryRaw<any[]>`
-        SELECT TO_CHAR("createdAt", 'Mon') AS month, SUM("amount")::float AS amount
+        SELECT TO_CHAR("createdAt", 'YYYY-MM') AS month_key, SUM("amount")::float AS amount
         FROM "Payment"
-        WHERE "status" = 'SUCCEEDED' AND "createdAt" >= ${startDate}
-        GROUP BY TO_CHAR("createdAt", 'Mon'), DATE_TRUNC('month', "createdAt")
+        WHERE "status"::text IN (${Prisma.join(successfulStatuses)}) AND "createdAt" >= ${startDate}
+        GROUP BY TO_CHAR("createdAt", 'YYYY-MM'), DATE_TRUNC('month', "createdAt")
         ORDER BY DATE_TRUNC('month', "createdAt")
       `,
       this.prisma.vetProfile.findMany({
@@ -577,29 +694,32 @@ export class AdminService {
       }),
       this.prisma.user.count(),
       this.prisma.payment.aggregate({
-        where: { status: 'SUCCEEDED' },
+        where: {
+          status: { in: successfulStatuses as any },
+          createdAt: { gte: startDate },
+        },
         _sum: { amount: true },
+        _count: { id: true },
       }),
-      this.prisma.appointment.count(),
-      this.prisma.payment.count({
-        where: { status: 'SUCCEEDED' },
+      this.prisma.appointment.count({
+        where: { createdAt: { gte: startDate } },
+      }),
+      this.prisma.vendorProduct.findMany({
+        select: { attributes: true },
       }),
     ]);
 
     // Map DB results to month map
     usersResult.forEach((r) => {
-      const mStr = r.month;
-      if (monthlyDataMap[mStr]) monthlyDataMap[mStr].users = r.count;
+      if (monthlyDataMap[r.month_key]) monthlyDataMap[r.month_key].users = r.count;
     });
 
     appointmentsResult.forEach((r) => {
-      const mStr = r.month;
-      if (monthlyDataMap[mStr]) monthlyDataMap[mStr].count = r.count;
+      if (monthlyDataMap[r.month_key]) monthlyDataMap[r.month_key].count = r.count;
     });
 
     paymentsResult.forEach((r) => {
-      const mStr = r.month;
-      if (monthlyDataMap[mStr]) monthlyDataMap[mStr].amount = r.amount || 0;
+      if (monthlyDataMap[r.month_key]) monthlyDataMap[r.month_key].amount = r.amount || 0;
     });
 
     const userGrowth = Object.values(monthlyDataMap).map((d) => ({
@@ -620,23 +740,44 @@ export class AdminService {
       consultations: v.totalConsults,
     }));
 
-    const categoryDistribution = [
-      { category: 'Pet Food & Nutrition', count: 24 },
-      { category: 'Medical Supplies', count: 15 },
-      { category: 'Accessories', count: 18 },
-      { category: 'Hygiene & Care', count: 10 },
-      { category: 'Toys & Play', count: 12 },
-    ];
+    // Dynamic Product Category Distribution from actual marketplace listings
+    const CATEGORY_LABELS: Record<string, string> = {
+      PET: 'Pets & Animals',
+      LIVESTOCK: 'Livestock',
+      ACCESSORY: 'Accessories',
+      FEED: 'Feeds & Nutrition',
+      MEDICATION: 'Medical Supplies',
+      EQUIPMENT: 'Equipment & Hardware',
+      GROOMING: 'Hygiene & Care',
+      TOYS: 'Toys & Play',
+      BEDDING: 'Bedding & Housing',
+      OTHER: 'Other Products',
+    };
 
-    const totalRevenue = Number(totalRevenueAgg._sum.amount || 0);
+    const categoryCounts: Record<string, number> = {};
+    vendorProducts.forEach((vp) => {
+      const attrs = vp.attributes as any;
+      const rawCat = (attrs?.category || 'OTHER').toUpperCase();
+      const label = CATEGORY_LABELS[rawCat] || rawCat.replace(/_/g, ' ');
+      categoryCounts[label] = (categoryCounts[label] || 0) + 1;
+    });
 
-    const thisMonth = new Date().getMonth();
-    const lastMonth = (thisMonth - 1 + 12) % 12;
-    const thisMonthStr = monthNames[thisMonth];
-    const lastMonthStr = monthNames[lastMonth];
+    const categoryDistribution = Object.entries(categoryCounts).map(
+      ([category, count]) => ({ category, count }),
+    );
 
-    const thisMonthUsers = monthlyDataMap[thisMonthStr]?.users || 0;
-    const lastMonthUsers = monthlyDataMap[lastMonthStr]?.users || 0;
+    const totalRevenue = Number(rangePaymentAgg._sum.amount || 0);
+    const paymentsCountResult = rangePaymentAgg._count.id || 0;
+    const averageOrderValue =
+      paymentsCountResult === 0 ? 0 : totalRevenue / paymentsCountResult;
+
+    // Growth rates based on current vs previous month in the dataset
+    const monthKeys = Object.keys(monthlyDataMap);
+    const currentMonthData = monthKeys.length > 0 ? monthlyDataMap[monthKeys[monthKeys.length - 1]] : null;
+    const prevMonthData = monthKeys.length > 1 ? monthlyDataMap[monthKeys[monthKeys.length - 2]] : null;
+
+    const thisMonthUsers = currentMonthData?.users || 0;
+    const lastMonthUsers = prevMonthData?.users || 0;
     const userGrowthRate =
       lastMonthUsers === 0
         ? thisMonthUsers > 0
@@ -644,8 +785,8 @@ export class AdminService {
           : 0
         : ((thisMonthUsers - lastMonthUsers) / lastMonthUsers) * 100;
 
-    const thisMonthRevenue = monthlyDataMap[thisMonthStr]?.amount || 0;
-    const lastMonthRevenue = monthlyDataMap[lastMonthStr]?.amount || 0;
+    const thisMonthRevenue = currentMonthData?.amount || 0;
+    const lastMonthRevenue = prevMonthData?.amount || 0;
     const revenueGrowthRate =
       lastMonthRevenue === 0
         ? thisMonthRevenue > 0
@@ -653,8 +794,8 @@ export class AdminService {
           : 0
         : ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
 
-    const thisMonthConsultations = monthlyDataMap[thisMonthStr]?.count || 0;
-    const lastMonthConsultations = monthlyDataMap[lastMonthStr]?.count || 0;
+    const thisMonthConsultations = currentMonthData?.count || 0;
+    const lastMonthConsultations = prevMonthData?.count || 0;
     const consultationGrowthRate =
       lastMonthConsultations === 0
         ? thisMonthConsultations > 0
@@ -663,9 +804,6 @@ export class AdminService {
         : ((thisMonthConsultations - lastMonthConsultations) /
             lastMonthConsultations) *
           100;
-
-    const averageOrderValue =
-      paymentsCountResult === 0 ? 0 : totalRevenue / paymentsCountResult;
 
     return {
       userGrowth,

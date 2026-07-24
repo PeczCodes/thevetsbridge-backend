@@ -1,7 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { DistributedLockService } from './distributed-lock.service';
 import { CacheKeys } from './cache-keys';
+import { MonitoringService } from '../../src/monitoring/monitoring.service';
+import {
+  CACHE_HITS_TOTAL,
+  CACHE_MISSES_TOTAL,
+  CACHE_WRITES_TOTAL,
+  CACHE_INVALIDATIONS_TOTAL,
+  REDIS_CONNECTION_FAILURES_TOTAL,
+} from '../../src/monitoring/metrics/cache.metrics';
 
 @Injectable()
 export class CacheService {
@@ -10,6 +18,7 @@ export class CacheService {
   constructor(
     private readonly redisService: RedisService,
     private readonly distributedLockService: DistributedLockService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
   
   async getOrSet<T>(key: string, factory: () => Promise<T>, ttlSeconds: number): Promise<T> {
@@ -97,8 +106,16 @@ export class CacheService {
       return null;
     }
     try {
-      return await this.redisService.getClient().get(key);
+      const val = await this.redisService.getClient().get(key);
+      const ns = key.split(':')[0] || 'default';
+      if (val !== null) {
+        this.monitoringService?.incrementCounter(CACHE_HITS_TOTAL, 1, { namespace: ns });
+      } else {
+        this.monitoringService?.incrementCounter(CACHE_MISSES_TOTAL, 1, { namespace: ns });
+      }
+      return val;
     } catch (error) {
+      this.monitoringService?.incrementCounter(REDIS_CONNECTION_FAILURES_TOTAL, 1, { event: 'get_error' });
       this.logger.warn(`Failed to read from cache for key "${key}":`, error);
       return null;
     }
@@ -114,7 +131,9 @@ export class CacheService {
       } else {
         await this.redisService.getClient().set(key, value);
       }
+      this.monitoringService?.incrementCounter(CACHE_WRITES_TOTAL, 1, { operation: 'set' });
     } catch (error) {
+      this.monitoringService?.incrementCounter(REDIS_CONNECTION_FAILURES_TOTAL, 1, { event: 'set_error' });
       this.logger.warn(`Failed to write to cache for key "${key}":`, error);
     }
   }
@@ -125,8 +144,11 @@ export class CacheService {
     }
     try {
       await this.redisService.getClient().del(key);
+      const ns = key.split(':')[0] || 'default';
+      this.monitoringService?.incrementCounter(CACHE_INVALIDATIONS_TOTAL, 1, { namespace: ns });
       this.logger.log(`[Cache Invalidation] Deleted cache key: "${key}"`);
     } catch (error) {
+      this.monitoringService?.incrementCounter(REDIS_CONNECTION_FAILURES_TOTAL, 1, { event: 'del_error' });
       this.logger.warn(`Failed to delete cache for key "${key}":`, error);
     }
   }

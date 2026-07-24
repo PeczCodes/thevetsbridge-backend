@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
 import { LedgerService } from '../../payments/services/ledger.service';
@@ -16,6 +17,12 @@ import {
   ShippingStrategy,
 } from '@prisma/client';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
+import { MonitoringService } from '../../../monitoring/monitoring.service';
+import {
+  MARKETPLACE_ORDERS_PLACED_TOTAL,
+  MARKETPLACE_ORDERS_COMPLETED_TOTAL,
+  MARKETPLACE_ORDERS_CANCELLED_TOTAL,
+} from '../../../monitoring/metrics/business.metrics';
 
 @Injectable()
 export class OrdersService {
@@ -24,6 +31,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledgerService: LedgerService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
   async placeOrder(userId: string, dto: PlaceOrderDto) {
@@ -260,6 +268,8 @@ export class OrdersService {
           },
         },
       });
+
+      this.monitoringService?.incrementCounter(MARKETPLACE_ORDERS_PLACED_TOTAL, 1);
 
       return tx.order.findUnique({
         where: { id: order.id },

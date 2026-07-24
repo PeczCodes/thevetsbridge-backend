@@ -1,8 +1,13 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Optional } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
+import { MonitoringService } from '../../src/monitoring/monitoring.service';
+import {
+  DB_QUERY_DURATION_SECONDS,
+  DB_QUERY_FAILURES_TOTAL,
+} from '../../src/monitoring/metrics/db.metrics';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -12,6 +17,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     private readonly configService: ConfigService,
     @InjectQueue('outbox-events')
     private readonly outboxQueue: Queue,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {
     super({
       log: ['error', 'warn'],
@@ -27,6 +33,30 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       this.logger.error(`PostgreSQL connection failed: ${err.message || err}`);
       throw err;
     }
+
+    // Query Metrics Middleware
+    this.$use(async (params, next) => {
+      const startTime = process.hrtime();
+      const model = params.model || 'raw';
+      const action = params.action || 'query';
+
+      try {
+        const result = await next(params);
+        const diff = process.hrtime(startTime);
+        const durationInSeconds = diff[0] + diff[1] / 1e9;
+        this.monitoringService?.observeHistogram(DB_QUERY_DURATION_SECONDS, durationInSeconds, {
+          model,
+          action,
+        });
+        return result;
+      } catch (error) {
+        this.monitoringService?.incrementCounter(DB_QUERY_FAILURES_TOTAL, 1, {
+          model,
+          action,
+        });
+        throw error;
+      }
+    });
 
     const bypass = this.configService.get<boolean>('app.bypassOutbox') ?? false;
     if (bypass) {

@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import pinoConfig from 'src/logger/pino.config';
 import { InfraModule } from '../infra/infra.module';
@@ -13,7 +14,11 @@ import { AdminModule } from './modules/admin/admin.module';
 import { SearchModule } from './modules/search/search.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { MediaModule } from './modules/media/media.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MonitoringModule } from './monitoring/monitoring.module';
+import { HttpMetricsInterceptor } from './monitoring/interceptors/http-metrics.interceptor';
+import { ExceptionMonitoringFilter } from './monitoring/interceptors/exception-monitoring.filter';
 import { appConfig } from '../config/app.config';
 import { redisConfig } from '../config/redis.config';
 import { paystackConfig } from '../config/paystack.config';
@@ -47,6 +52,7 @@ import { telemedicineConfig } from '../config/telemedicine.config';
       inject: [ConfigService],
       useFactory: pinoConfig,
     }),
+    MonitoringModule,
     InfraModule,
     IdentityModule,
     OrganizationsModule,
@@ -57,8 +63,19 @@ import { telemedicineConfig } from '../config/telemedicine.config';
     SearchModule,
     PaymentsModule,
     MediaModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: HttpMetricsInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: ExceptionMonitoringFilter,
+    },
+  ],
 })
 export class AppModule {}

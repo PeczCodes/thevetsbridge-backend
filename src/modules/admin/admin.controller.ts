@@ -17,8 +17,8 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('stats')
-  async getStats() {
-    return this.adminService.getStats();
+  async getStats(@Query('range') range?: string) {
+    return this.adminService.getStats(range);
   }
 
   @Get('pending-verifications')
@@ -29,11 +29,6 @@ export class AdminController {
   @Get('recent-transactions')
   async getRecentTransactions() {
     return this.adminService.getRecentTransactions();
-  }
-
-  @Get('flagged-content')
-  async getFlaggedContent() {
-    return this.adminService.getFlaggedContent();
   }
 
   @Get('analytics')
@@ -103,13 +98,5 @@ export class AdminController {
   @Patch('settings')
   async updateSettings(@Body() body: Record<string, string>) {
     return this.adminService.updateSettings(body);
-  }
-
-  @Post('flagged-content/:id/resolve')
-  async resolveFlaggedContent(
-    @Param('id') id: string,
-    @Body('action') action: 'KEEP' | 'DELETE',
-  ) {
-    return this.adminService.resolveFlaggedContent(id, action);
   }
 }

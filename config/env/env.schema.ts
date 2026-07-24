@@ -9,6 +9,13 @@ export const envSchema = z.object({
   APP_NAME: z.string(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   BYPASS_OUTBOX: z.string().optional().default('true'),
+
+  // ==============================
+  // Prometheus Monitoring
+  // ==============================
+  METRICS_ENABLED: z.string().optional().default('true'),
+  METRICS_AUTH_ENABLED: z.string().optional().default('false'),
+  METRICS_API_KEY: z.string().optional().or(z.literal('')),
   
   // ==============================
   // Redis

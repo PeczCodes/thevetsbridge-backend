@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   IPaymentProvider,
@@ -9,6 +9,13 @@ import { Decimal } from '@prisma/client/runtime/library';
 import * as crypto from 'crypto';
 import { CircuitBreakerService } from '../../../../infra/circuit-breaker/circuit-breaker.service';
 import { ExternalServiceException } from '../../../../infra/circuit-breaker/exceptions/external-service.exception';
+import { MonitoringService } from '../../../monitoring/monitoring.service';
+import {
+  PAYMENT_ATTEMPTS_TOTAL,
+  PAYMENT_SUCCESSES_TOTAL,
+  PAYMENT_FAILURES_TOTAL,
+  PAYMENT_REFUNDS_TOTAL,
+} from '../../../monitoring/metrics/business.metrics';
 
 @Injectable()
 export class PaystackProvider implements IPaymentProvider, OnModuleInit {
@@ -19,6 +26,7 @@ export class PaystackProvider implements IPaymentProvider, OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly circuitBreakerService: CircuitBreakerService,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {
     this.secretKey =
       this.configService.get<string>('paystack.apiKey') || 'DISABLED';
@@ -142,6 +150,9 @@ export class PaystackProvider implements IPaymentProvider, OnModuleInit {
     metadata?: Record<string, any>,
   ): Promise<InitializeTxResult> {
     const amountInKobo = Math.round(amount.toNumber() * 100);
+    const purpose = metadata?.purpose || 'consultation';
+
+    this.monitoringService?.incrementCounter(PAYMENT_ATTEMPTS_TOTAL, 1, { purpose, channel: 'paystack' });
 
     const data = await this.request('/transaction/initialize', {
       method: 'POST',
@@ -155,6 +166,7 @@ export class PaystackProvider implements IPaymentProvider, OnModuleInit {
     });
 
     if (!data.status) {
+      this.monitoringService?.incrementCounter(PAYMENT_FAILURES_TOTAL, 1, { purpose, error_type: 'init_failed' });
       throw new ExternalServiceException({
         provider: 'paystack',
         message: data.message || 'Error response from Paystack',
@@ -189,10 +201,14 @@ export class PaystackProvider implements IPaymentProvider, OnModuleInit {
 
     const txStatus = data.data.status;
     let status: 'success' | 'failed' | 'pending' = 'pending';
+    const purpose = data.data.metadata?.purpose || 'consultation';
+
     if (txStatus === 'success') {
       status = 'success';
+      this.monitoringService?.incrementCounter(PAYMENT_SUCCESSES_TOTAL, 1, { purpose });
     } else if (txStatus === 'failed') {
       status = 'failed';
+      this.monitoringService?.incrementCounter(PAYMENT_FAILURES_TOTAL, 1, { purpose, error_type: 'gateway_declined' });
     }
 
     return {
