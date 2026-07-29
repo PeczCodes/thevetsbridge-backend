@@ -85,6 +85,19 @@ export class ConsultationsController {
     );
   }
 
+  @Post(':id/messages')
+  async sendMessage(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body('content') content: string,
+  ) {
+    return this.consultationsService.sendConsultationMessage(
+      user.id,
+      id,
+      content,
+    );
+  }
+
   @Get(':id')
   async getConsultation(@Param('id') id: string, @CurrentUser() user: any) {
     return this.consultationsService.getConsultation(user.id, id);

@@ -486,6 +486,24 @@ export class AdminService {
         },
       });
 
+      // Create in-app notification for the vet user
+      if (status === 'APPROVED' || status === 'REJECTED') {
+        await tx.notification.create({
+          data: {
+            userId: vet.userId,
+            title: status === 'APPROVED' ? 'Vet Profile Approved 🎉' : 'Vet Profile Status Update ⚠️',
+            body: status === 'APPROVED'
+              ? 'Your veterinarian profile application has been verified and approved. You can now accept patient bookings.'
+              : `Your veterinarian profile application requires attention. Reason: ${rejectionReason || 'Verification pending.'}`,
+            type: 'SYSTEM',
+            data: {
+              targetRole: 'VET',
+              vetProfileId: vet.id,
+            },
+          },
+        });
+      }
+
       return updatedProfile;
     });
 
@@ -550,6 +568,24 @@ export class AdminService {
           },
         },
       });
+
+      // Create in-app notification for the vendor user
+      if (status === 'APPROVED' || status === 'REJECTED') {
+        await tx.notification.create({
+          data: {
+            userId: vendor.userId,
+            title: status === 'APPROVED' ? 'Vendor Store Approved 🎉' : 'Vendor Store Status Update ⚠️',
+            body: status === 'APPROVED'
+              ? 'Your vendor store application has been approved! You can now publish products to the Marketplace.'
+              : `Your vendor store application requires attention. Reason: ${rejectionReason || 'Verification pending.'}`,
+            type: 'SYSTEM',
+            data: {
+              targetRole: 'VENDOR',
+              vendorProfileId: vendor.id,
+            },
+          },
+        });
+      }
 
       return updatedProfile;
     });

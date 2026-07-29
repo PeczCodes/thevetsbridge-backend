@@ -343,12 +343,19 @@ export class ConsultationsService implements OnModuleInit {
 
   async isParticipant(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
   ): Promise<boolean> {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
+    let consultation = await this.prisma.consultation.findUnique({
+      where: { id: idOrApptId },
       include: { vet: true },
     });
+
+    if (!consultation) {
+      consultation = await this.prisma.consultation.findFirst({
+        where: { appointmentId: idOrApptId },
+        include: { vet: true },
+      });
+    }
 
     if (!consultation) return false;
 
@@ -359,13 +366,20 @@ export class ConsultationsService implements OnModuleInit {
 
   async sendConsultationMessage(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     content: string,
   ) {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
+    let consultation = await this.prisma.consultation.findUnique({
+      where: { id: idOrApptId },
       include: { vet: true },
     });
+
+    if (!consultation) {
+      consultation = await this.prisma.consultation.findFirst({
+        where: { appointmentId: idOrApptId },
+        include: { vet: true },
+      });
+    }
 
     if (!consultation) {
       throw new NotFoundException('Consultation not found');
@@ -381,11 +395,18 @@ export class ConsultationsService implements OnModuleInit {
     }
 
     const now = new Date();
+    const statusStr = consultation.status as string;
 
-    if (consultation.status === 'LIVE' || consultation.status === 'CONFIRMED' || consultation.status === 'SCHEDULED') {
+    if (
+      statusStr === 'LIVE' ||
+      statusStr === 'CONFIRMED' ||
+      statusStr === 'SCHEDULED' ||
+      statusStr === 'IN_PROGRESS' ||
+      statusStr === 'ACTIVE'
+    ) {
       return this.prisma.chatMessage.create({
         data: {
-          consultationId,
+          consultationId: consultation.id,
           senderId: userId,
           content,
           isFollowUp: false,
@@ -422,7 +443,7 @@ export class ConsultationsService implements OnModuleInit {
 
       return this.prisma.chatMessage.create({
         data: {
-          consultationId,
+          consultationId: consultation.id,
           senderId: userId,
           content,
           isFollowUp: true,
@@ -450,10 +471,24 @@ export class ConsultationsService implements OnModuleInit {
 
   async getConsultationMessages(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     pagination: PaginationDto,
   ) {
-    const isParticipant = await this.isParticipant(userId, consultationId);
+    let consultation = await this.prisma.consultation.findUnique({
+      where: { id: idOrApptId },
+    });
+
+    if (!consultation) {
+      consultation = await this.prisma.consultation.findFirst({
+        where: { appointmentId: idOrApptId },
+      });
+    }
+
+    if (!consultation) {
+      throw new NotFoundException('Consultation not found');
+    }
+
+    const isParticipant = await this.isParticipant(userId, consultation.id);
     if (!isParticipant) {
       throw new ForbiddenException(
         'You are not a participant in this consultation',
@@ -461,13 +496,11 @@ export class ConsultationsService implements OnModuleInit {
     }
 
     const page = pagination.page || 1;
-    const limit = pagination.limit && pagination.limit !== 10 ? pagination.limit : 100;
+    const limit = pagination.limit || 50;
     const skip = (page - 1) * limit;
 
     return this.prisma.chatMessage.findMany({
-      where: { consultationId },
-      skip,
-      take: limit,
+      where: { consultationId: consultation.id },
       include: {
         sender: {
           select: {
@@ -482,6 +515,8 @@ export class ConsultationsService implements OnModuleInit {
         },
       },
       orderBy: { createdAt: 'asc' },
+      skip,
+      take: limit,
     });
   }
 
@@ -573,8 +608,13 @@ export class ConsultationsService implements OnModuleInit {
   }
 
   async getConsultation(userId: string, consultationId: string) {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
+    const consultation = await this.prisma.consultation.findFirst({
+      where: {
+        OR: [
+          { id: consultationId },
+          { appointmentId: consultationId },
+        ],
+      },
       include: {
         vet: {
           include: {

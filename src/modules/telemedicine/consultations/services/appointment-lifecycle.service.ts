@@ -263,6 +263,11 @@ export class AppointmentLifecycleService {
               title: 'Consultation Started 🟢',
               body: `${vetName} has started your virtual consultation call session. Join now.`,
               type: 'APPOINTMENT',
+              data: {
+                targetRole: 'CUSTOMER',
+                appointmentId: appointment.id,
+                consultationId: appointment.consultation?.id,
+              },
             },
           });
 
@@ -323,6 +328,11 @@ export class AppointmentLifecycleService {
               title: 'Consultation Completed',
               body: `Your consultation call session has ended. Please rate your experience and download prescriptions if needed.`,
               type: 'APPOINTMENT',
+              data: {
+                targetRole: 'CUSTOMER',
+                appointmentId: appointment.id,
+                consultationId: appointment.consultation?.id,
+              },
             },
           });
 
@@ -381,12 +391,22 @@ export class AppointmentLifecycleService {
                 title: 'Consultation Cancelled',
                 body: `The consultation has been cancelled. Reason: ${cancelReason}`,
                 type: 'APPOINTMENT',
+                data: {
+                  targetRole: 'CUSTOMER',
+                  appointmentId: appointment.id,
+                  consultationId: appointment.consultation?.id,
+                },
               },
               {
                 userId: appointment.vet.userId,
                 title: 'Consultation Cancelled',
                 body: `The consultation has been cancelled. Reason: ${cancelReason}`,
                 type: 'APPOINTMENT',
+                data: {
+                  targetRole: 'VET',
+                  appointmentId: appointment.id,
+                  consultationId: appointment.consultation?.id,
+                },
               },
             ],
           });
@@ -426,6 +446,7 @@ export class AppointmentLifecycleService {
           // Notify the other party
           const targetUserId =
             res.requestedBy === 'CLIENT' ? appointment.vet.userId : appointment.ownerId;
+          const targetRole = res.requestedBy === 'CLIENT' ? 'VET' : 'CUSTOMER';
           const requestorName =
             res.requestedBy === 'CLIENT'
               ? `${appointment.owner.firstName} ${appointment.owner.lastName}`
@@ -444,6 +465,11 @@ export class AppointmentLifecycleService {
               title: 'Reschedule Requested',
               body: `${requestorName} has requested to reschedule the appointment to ${res.newStart.toLocaleString()}.`,
               type: 'APPOINTMENT',
+              data: {
+                targetRole,
+                appointmentId: appointment.id,
+                consultationId: appointment.consultation?.id,
+              },
             },
           });
           break;
@@ -489,12 +515,22 @@ export class AppointmentLifecycleService {
                 title: 'No-Show Recorded',
                 body: `A no-show has been logged for this consultation (${updateData.noShowParty} was absent).`,
                 type: 'APPOINTMENT',
+                data: {
+                  targetRole: 'CUSTOMER',
+                  appointmentId: appointment.id,
+                  consultationId: appointment.consultation?.id,
+                },
               },
               {
                 userId: appointment.vet.userId,
                 title: 'No-Show Recorded',
                 body: `A no-show has been logged for this consultation (${updateData.noShowParty} was absent).`,
                 type: 'APPOINTMENT',
+                data: {
+                  targetRole: 'VET',
+                  appointmentId: appointment.id,
+                  consultationId: appointment.consultation?.id,
+                },
               },
             ],
           });

@@ -437,6 +437,37 @@ export class PaymentService {
           });
         }
 
+        // Create In-App Notification records
+        if (payment.purpose === 'ORDER' && payment.orderId) {
+          await tx.notification.create({
+            data: {
+              userId: payment.userId,
+              title: 'Payment Received & Order Confirmed 📦',
+              body: `Your payment of ₦${Number(verifyResult.amountPaid).toLocaleString()} for Order #${payment.orderId.slice(-8).toUpperCase()} was successful.`,
+              type: 'ORDER',
+              data: {
+                targetRole: 'CUSTOMER',
+                orderId: payment.orderId,
+                paymentId: payment.id,
+              },
+            },
+          });
+        } else if (payment.purpose === 'APPOINTMENT' && payment.appointmentId) {
+          await tx.notification.create({
+            data: {
+              userId: payment.userId,
+              title: 'Consultation Payment Confirmed 💳',
+              body: `Your payment of ₦${Number(verifyResult.amountPaid).toLocaleString()} for your appointment was confirmed.`,
+              type: 'PAYMENT',
+              data: {
+                targetRole: 'CUSTOMER',
+                appointmentId: payment.appointmentId,
+                paymentId: payment.id,
+              },
+            },
+          });
+        }
+
         // Write to transactional OutboxEvent table
         this.logger.log(
           `[Correlation ID: ${correlationId}] Writing PAYMENT_COMPLETED event to Outbox table`,
