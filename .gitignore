@@ -28,10 +28,6 @@ pnpm-debug.log*
 lerna-debug.log*
 
 
-#md files
-*.md
-!README.md
-
 # ==========================================
 # Runtime files
 # ==========================================
@@ -85,3 +81,5 @@ temp/
 *.tgz
 *.swp
 *.swo
+
+.idea
