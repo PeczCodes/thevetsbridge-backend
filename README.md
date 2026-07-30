@@ -53,7 +53,7 @@ NestJS Backend (Modular Monolith)
        └──► Resend / SMTP (Transactional Email)
 ```
 
-For full architectural details, see the [Architecture Overview Documentation](docs/architecture/overview.md).
+For full architectural details, see the [Architecture Overview Documentation](./docs/architecture/overview.md).
 
 ---
 
@@ -124,34 +124,34 @@ pnpm start:dev
 
 Environment variables are strictly validated on startup using **Zod** (`envSchema`). If required variables are missing or malformed, the application fails fast before initialization.
 
-See [.env.example](.env.example) for a complete list of required environment configuration keys.
+See [.env.example](./.env.example) for a complete list of required environment configuration keys.
 
 ---
 
 ## 📚 Documentation
 
-Deep-dive architectural guides, security details, and API references are available in the [`docs/`](docs/) directory:
+Deep-dive architectural guides, security details, and API references are available in the [`./docs`](./docs) directory:
 
 - **Architecture**
-  - [Overview & Module Layout](docs/architecture/overview.md)
-  - [Authentication & JWT Flow](docs/architecture/authentication.md)
-  - [Authorization & RBAC](docs/architecture/authorization.md)
-  - [Database Architecture & Transactions](docs/architecture/database.md)
-  - [Event-Driven Processing](docs/architecture/events.md)
-  - [Notifications System](docs/architecture/notifications.md)
-  - [Payments Engine](docs/architecture/payments.md)
-  - [Background Queues (BullMQ)](docs/architecture/queues.md)
-  - [Redis Caching Strategy](docs/architecture/caching.md)
-  - [WebSockets & Real-time Messaging](docs/architecture/websocket.md)
+  - [Overview & Module Layout](./docs/architecture/overview.md)
+  - [Authentication & JWT Flow](./docs/architecture/authentication.md)
+  - [Authorization & RBAC](./docs/architecture/authorization.md)
+  - [Database Architecture & Transactions](./docs/architecture/database.md)
+  - [Event-Driven Processing](./docs/architecture/events.md)
+  - [Notifications System](./docs/architecture/notifications.md)
+  - [Payments Engine](./docs/architecture/payments.md)
+  - [Background Queues (BullMQ)](./docs/architecture/queues.md)
+  - [Redis Caching Strategy](./docs/architecture/caching.md)
+  - [WebSockets & Real-time Messaging](./docs/architecture/websocket.md)
 - **Observability**
-  - [Monitoring & Prometheus Metrics](docs/monitoring/monitoring.md)
+  - [Monitoring & Prometheus Metrics](./docs/monitoring/monitoring.md)
 - **Security**
-  - [Security Architecture & Guidelines](docs/security/security.md)
+  - [Security Architecture & Guidelines](./docs/security/security.md)
 - **Deployment**
-  - [Production Deployment Guide](docs/deployment/deployment.md)
+  - [Production Deployment Guide](./docs/deployment/deployment.md)
 - **Developer Resources**
-  - [Developer Setup & Guidelines](docs/developer-guide/getting-started.md)
-  - [Troubleshooting & Common Issues](docs/troubleshooting/common-issues.md)
+  - [Developer Setup & Guidelines](./docs/developer-guide/getting-started.md)
+  - [Troubleshooting & Common Issues](./docs/troubleshooting/common-issues.md)
 
 ---
 
@@ -222,7 +222,7 @@ VetsBridge is optimized for modern cloud platforms:
 - **Cache & Queues**: Redis Cloud / Railway Redis
 - **Metrics**: Grafana Cloud Prometheus Remote Write
 
-For step-by-step production deployment setup, refer to the [Deployment Documentation](docs/deployment/deployment.md).
+For step-by-step production deployment setup, refer to the [Deployment Documentation](./docs/deployment/deployment.md).
 
 ---
 
