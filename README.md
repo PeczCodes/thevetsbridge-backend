@@ -15,7 +15,7 @@ Production-grade veterinary telemedicine platform built with Next.js, NestJS, Po
 </p>
 
 - **Live Platform Demo**: [https://www.vetsbridge.org](https://www.vetsbridge.org)
-- **API Portal & Swagger**: [https://api.vetsbridge.org/v1/docs](https://api.vetsbridge.org/v1/docs)
+- **API Portal & Swagger**: [https://api.vetsbridge.org/api/docs](https://api.vetsbridge.org/api/docs)
 
 ---
 
@@ -157,10 +157,11 @@ Deep-dive architectural guides, security details, and API references are availab
 
 ## 📖 API Documentation
 
-Interactive Swagger API documentation is automatically served in development and staging environments at:
+Interactive Swagger API documentation is served across development, staging, and production environments (controlled by `SWAGGER_ENABLED=true`) at:
 
 ```text
-http://localhost:3005/v1/docs
+Local:      http://localhost:3005/api/docs
+Production: https://api.vetsbridge.org/api/docs
 ```
 
 The Swagger specification provides full endpoint documentation, payload schemas, authorization headers, and interactive testing tools.

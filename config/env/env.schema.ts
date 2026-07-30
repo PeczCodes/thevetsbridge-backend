@@ -9,6 +9,7 @@ export const envSchema = z.object({
   APP_NAME: z.string(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   BYPASS_OUTBOX: z.string().optional().default('true'),
+  SWAGGER_ENABLED: z.string().optional().default('true'),
 
   // ==============================
   // Prometheus & Grafana Cloud Monitoring

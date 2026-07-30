@@ -50,7 +50,9 @@ async function bootstrap() {
     }),
   );
 
-  if (nodeEnv !== 'production') {
+  const isSwaggerEnabled = process.env.SWAGGER_ENABLED !== 'false';
+
+  if (isSwaggerEnabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('VetsBridge API')
       .setDescription(
