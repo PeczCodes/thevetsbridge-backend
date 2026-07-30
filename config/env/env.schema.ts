@@ -11,11 +11,14 @@ export const envSchema = z.object({
   BYPASS_OUTBOX: z.string().optional().default('true'),
 
   // ==============================
-  // Prometheus Monitoring
+  // Prometheus & Grafana Cloud Monitoring
   // ==============================
   METRICS_ENABLED: z.string().optional().default('true'),
   METRICS_AUTH_ENABLED: z.string().optional().default('false'),
   METRICS_API_KEY: z.string().optional().or(z.literal('')),
+  GRAFANA_CLOUD_PROMETHEUS_URL: z.string().optional().or(z.literal('')),
+  GRAFANA_CLOUD_PROMETHEUS_USER: z.string().optional().or(z.literal('')),
+  GRAFANA_CLOUD_API_KEY: z.string().optional().or(z.literal('')),
   
   // ==============================
   // Redis

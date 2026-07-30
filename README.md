@@ -1,98 +1,240 @@
+# VetsBridge
+
+Production-grade veterinary telemedicine platform built with Next.js, NestJS, PostgreSQL, Redis, and BullMQ.
+
+---
+
+## 📸 Demo & Interface
+
 <p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+  <img src="./docs/assets/hero.png" alt="VetsBridge Hero" width="1000" />
 </p>
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
-
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
+<p align="center">
+  <img src="./docs/assets/dashboard.png" alt="VetsBridge Multi-Role Dashboard" width="1000" />
 </p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+- **Live Platform Demo**: [https://www.vetsbridge.org](https://www.vetsbridge.org)
+- **API Portal & Swagger**: [https://api.vetsbridge.org/v1/docs](https://api.vetsbridge.org/v1/docs)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## ✨ Features
 
-```bash
-$ pnpm install
+- **Secure Authentication**: Dual-token architecture (JWT access & refresh tokens) with Google OAuth 2.0 integration.
+- **Veterinary Telemedicine**: Virtual consultation scheduling, automated lifecycle management, and instant booking.
+- **Real-Time Video & Chat**: WebRTC video streaming via LiveKit and low-latency WebSocket chat via Socket.io.
+- **Medical Records Management**: Patient medical history tracking, clinical notes generation, and exportable PDF summaries.
+- **E-Commerce Marketplace**: Veterinary product inventory, multi-variant listings, and vendor management.
+- **Order Processing & Fulfillment**: Checkout pipeline, automated inventory deduction, and delivery tracking.
+- **Payment Integration**: Multi-provider payment gateway integration supporting Paystack and Flutterwave.
+- **Real-Time Notifications**: In-app WebSocket alerts and email delivery via Resend/SMTP.
+- **Background Job Processing**: Distributed task processing and scheduled jobs backed by BullMQ.
+- **High-Performance Caching**: Cache-aside strategy powered by Redis with invalidation patterns.
+- **Role-Based Access Control**: Granular RBAC supporting `ADMIN`, `VET`, `VENDOR`, and `CUSTOMER` roles.
+- **Observability & Metrics**: Prometheus metrics collection (`prom-client`) with Grafana Cloud integration.
+
+---
+
+## 📐 Architecture Overview
+
+```text
+Next.js Frontend (App Router)
+       │
+       ▼  (REST API / WebSockets)
+NestJS Backend (Modular Monolith)
+       │
+       ├──► PostgreSQL (Primary Database via Prisma ORM)
+       ├──► Redis (Cache & Session Storage)
+       ├──► BullMQ (Async Queues & Background Workers)
+       ├──► LiveKit (WebRTC Audio/Video Streaming)
+       ├──► Cloudinary (Media Assets & Image Storage)
+       ├──► Paystack / Flutterwave (Payment Gateways)
+       └──► Resend / SMTP (Transactional Email)
 ```
 
-## Compile and run the project
+For full architectural details, see the [Architecture Overview Documentation](docs/architecture/overview.md).
 
-```bash
-# development
-$ pnpm run start
+---
 
-# watch mode
-$ pnpm run start:dev
+## 🛠️ Tech Stack
 
-# production mode
-$ pnpm run start:prod
+| Layer | Technology |
+| :--- | :--- |
+| **Frontend** | Next.js 16, React, Tailwind CSS |
+| **Backend** | NestJS (TypeScript, Modular Monolith) |
+| **Database** | PostgreSQL |
+| **ORM** | Prisma ORM |
+| **Cache** | Redis (`ioredis`) |
+| **Queue** | BullMQ |
+| **Media Storage** | Cloudinary |
+| **Video Telemedicine** | LiveKit WebRTC |
+| **Payments** | Paystack & Flutterwave |
+| **Notifications** | Socket.io (WebSockets) & Resend (Email) |
+| **Monitoring & Metrics** | Prometheus & Grafana Cloud |
+
+---
+
+## 📁 Repository Structure
+
+```text
+vetsbridge-backend/
+├── config/             # Type-safe environment & module configuration
+├── docs/               # Comprehensive technical architecture & system documentation
+├── infra/              # Core infrastructure modules (Prisma, Redis, Outbox, Messaging)
+├── prisma/             # Database schema definition, migrations, and seed scripts
+├── src/                # Application modules (Auth, Vets, Telemedicine, Marketplace, Admin)
+└── test/               # Unit, integration, and E2E test suites
 ```
 
-## Run tests
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js (`>=18.x` or `>=20.x`)
+- `pnpm` (`>=8.x`)
+- PostgreSQL (`>=14`)
+- Redis (`>=6.x`)
+
+### Installation & Local Setup
 
 ```bash
-# unit tests
-$ pnpm run test
+# 1. Clone the repository
+git clone https://github.com/vetsbridge/vetsbridge-backend.git
+cd vetsbridge-backend
 
-# e2e tests
-$ pnpm run test:e2e
+# 2. Install dependencies
+pnpm install
 
-# test coverage
-$ pnpm run test:cov
+# 3. Environment configuration
+cp .env.example .env
+
+# 4. Generate Prisma Client & run migrations
+pnpm prisma:generate
+pnpm prisma:migrate
+
+# 5. Start development server
+pnpm start:dev
 ```
 
-## Deployment
+---
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## 🔐 Environment Variables
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Environment variables are strictly validated on startup using **Zod** (`envSchema`). If required variables are missing or malformed, the application fails fast before initialization.
+
+See [.env.example](.env.example) for a complete list of required environment configuration keys.
+
+---
+
+## 📚 Documentation
+
+Deep-dive architectural guides, security details, and API references are available in the [`docs/`](docs/) directory:
+
+- **Architecture**
+  - [Overview & Module Layout](docs/architecture/overview.md)
+  - [Authentication & JWT Flow](docs/architecture/authentication.md)
+  - [Authorization & RBAC](docs/architecture/authorization.md)
+  - [Database Architecture & Transactions](docs/architecture/database.md)
+  - [Event-Driven Processing](docs/architecture/events.md)
+  - [Notifications System](docs/architecture/notifications.md)
+  - [Payments Engine](docs/architecture/payments.md)
+  - [Background Queues (BullMQ)](docs/architecture/queues.md)
+  - [Redis Caching Strategy](docs/architecture/caching.md)
+  - [WebSockets & Real-time Messaging](docs/architecture/websocket.md)
+- **Observability**
+  - [Monitoring & Prometheus Metrics](docs/monitoring/monitoring.md)
+- **Security**
+  - [Security Architecture & Guidelines](docs/security/security.md)
+- **Deployment**
+  - [Production Deployment Guide](docs/deployment/deployment.md)
+- **Developer Resources**
+  - [Developer Setup & Guidelines](docs/developer-guide/getting-started.md)
+  - [Troubleshooting & Common Issues](docs/troubleshooting/common-issues.md)
+
+---
+
+## 📖 API Documentation
+
+Interactive Swagger API documentation is automatically served in development and staging environments at:
+
+```text
+http://localhost:3005/v1/docs
+```
+
+The Swagger specification provides full endpoint documentation, payload schemas, authorization headers, and interactive testing tools.
+
+---
+
+## 💡 Design Principles
+
+- **Modular Monolith**: Code is logically organized into domain modules with strict isolation boundaries, enabling future extraction into microservices if needed.
+- **Event-Driven Processing**: Asynchronous events decouple business logic and ensure immediate API responsiveness.
+- **Fail-Fast Configuration**: Environment configuration is validated at runtime startup using Zod to prevent partial failures.
+- **Secure-by-Default Authentication**: Multi-layered token validation, strict CORS, rate limiting, and password hashing (`argon2`/`bcrypt`).
+- **Asynchronous Background Jobs**: Non-blocking processing for heavy tasks (emails, notifications, video token generation, status transitions).
+- **Strict Separation of Concerns**: Controllers handle HTTP logic, Services encapsulate business domain logic, and Repositories handle database persistence.
+
+---
+
+## 🌟 Key Engineering Highlights
+
+- **Transactional Outbox Pattern**: Guarantees atomic writes to the database while reliably publishing domain events without distributed transaction failures.
+- **Cache-Aside Pattern**: High-throughput Redis caching for hot entities (vet profiles, product listings) with proactive invalidation hooks.
+- **BullMQ Queue Workers**: Dedicated job queues for notifications, email delivery, and consultation lifecycle heartbeats.
+- **Dual-Token Authentication**: Secure access token rotation alongside long-lived refresh tokens stored securely.
+- **Granular Role-Based Access Control**: Decorator-driven `@Roles()` guards enforcing domain access rules across customer, vet, vendor, and admin roles.
+- **Prometheus & Grafana Cloud Observability**: Custom metrics collection exposing application throughput, API latency, queue depth, and Node.js process health.
+- **Environment Schema Validation**: Zod-enforced environment verification (`envSchema`) protecting deployment setups.
+- **Centralized Error Handling**: Standardized exception filters formatting runtime errors into clean API responses.
+
+---
+
+## 🧪 Testing
+
+The codebase includes unit tests, service tests, and end-to-end (E2E) integration suites:
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# Run unit tests
+pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+
+# Run end-to-end (E2E) integration tests
+pnpm test:e2e
+
+# Generate test coverage report
+pnpm test:cov
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## 🚢 Deployment
 
-Check out a few resources that may come in handy when working with NestJS:
+VetsBridge is optimized for modern cloud platforms:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+- **Backend API**: Deployed on Render / Railway / Docker
+- **Frontend App**: Deployed on Vercel
+- **Database**: PostgreSQL (Railway / Supabase)
+- **Cache & Queues**: Redis Cloud / Railway Redis
+- **Metrics**: Grafana Cloud Prometheus Remote Write
 
-## Support
+For step-by-step production deployment setup, refer to the [Deployment Documentation](docs/deployment/deployment.md).
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
+## 🔮 Future Improvements
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+- **Multi-Region Deployment**: Low-latency edge routing for global video consultations.
+- **Horizontal Auto-scaling**: Dynamic worker pod scaling with KEDA based on BullMQ queue depth.
+- **Distributed Tracing**: End-to-end request tracing using OpenTelemetry.
+- **Advanced Search Engine**: Vector similarity search for matching specialized veterinarians with complex animal cases.
+- **Enhanced Platform Analytics**: Automated revenue distribution reports and clinical diagnostic telemetry.
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).

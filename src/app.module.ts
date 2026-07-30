@@ -29,6 +29,7 @@ import { livekitConfig } from '../config/livekit.config';
 import { throttlerConfig } from '../config/throttler.config';
 import { circuitBreakerConfig } from '../config/circuit-breaker.config';
 import { telemedicineConfig } from '../config/telemedicine.config';
+import { metricsConfig } from '../config/metrics.config';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { telemedicineConfig } from '../config/telemedicine.config';
       isGlobal: true,
       load: [
         appConfig,
+        metricsConfig,
         redisConfig,
         paystackConfig,
         cloudinaryConfig,
