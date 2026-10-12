@@ -24,8 +24,9 @@ export const envSchema = z.object({
   // ==============================
   // Redis
   // ==============================
-  REDIS_HOST: z.string(),
-  REDIS_PORT: z.coerce.number(),
+  REDIS_URL: z.string().optional(),
+  REDIS_HOST: z.string().optional(),
+  REDIS_PORT: z.coerce.number().optional(),
   REDIS_PASSWORD: z.string().optional().or(z.literal('')),
   REDIS_DB: z.coerce.number().default(0),
 
@@ -112,4 +113,10 @@ export const envSchema = z.object({
   PASSWORD_RESET_EXPIRY_MINUTES: z.coerce.number().optional().default(30),
   PASSWORD_RESET_BASE_URL: z.string().url().optional().default('https://app.vetsbridge.com/reset-password'),
   ENCRYPTION_SECRET: z.string().optional().or(z.literal('')),
-});
+}).refine(
+  (data) => Boolean(data.REDIS_URL || (data.REDIS_HOST && data.REDIS_PORT)),
+  {
+    message: 'Either REDIS_URL or both REDIS_HOST and REDIS_PORT must be provided',
+    path: ['REDIS_HOST'],
+  },
+);
