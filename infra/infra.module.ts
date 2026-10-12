@@ -49,14 +49,32 @@ import { DEFAULT_BULLMQ_OPTIONS } from '../config/bullmq.config';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        ...DEFAULT_BULLMQ_OPTIONS,
-        connection: {
-          host: configService.get<string>('redis.host') || configService.get<string>('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('redis.port') || configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get<string>('redis.password') || configService.get<string>('REDIS_PASSWORD') || undefined,
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const redisUrl =
+          configService.get<string>('redis.url') ||
+          configService.get<string>('REDIS_URL');
+        return {
+          ...DEFAULT_BULLMQ_OPTIONS,
+          connection: redisUrl
+            ? {
+                url: redisUrl,
+                maxRetriesPerRequest: null,
+              }
+            : {
+                host:
+                  configService.get<string>('redis.host') ||
+                  configService.get<string>('REDIS_HOST', 'localhost'),
+                port:
+                  configService.get<number>('redis.port') ||
+                  configService.get<number>('REDIS_PORT', 6379),
+                password:
+                  configService.get<string>('redis.password') ||
+                  configService.get<string>('REDIS_PASSWORD') ||
+                  undefined,
+                maxRetriesPerRequest: null,
+              },
+        };
+      },
     }),
   ],
   providers: [

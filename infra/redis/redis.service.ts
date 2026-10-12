@@ -14,47 +14,34 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
       this.configService.get<string>('redis.url') ||
       process.env.REDIS_URL;
 
-    let host = this.configService.get<string>('REDIS_HOST');
-    let port = this.configService.get<number>('REDIS_PORT');
-    let password = this.configService.get<string>('REDIS_PASSWORD');
+    const commonOptions = {
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+      retryStrategy: (times: number) => {
+        this.logger.warn(`Redis reconnecting... Attempt ${times}`);
+        this.connectionStatus = 'reconnecting';
+        return Math.min(times * 100, 10000);
+      },
+    };
 
     if (redisUrl) {
-      try {
-        const parsed = new URL(redisUrl);
-        host = host || parsed.hostname;
-        port = port || (parsed.port ? parseInt(parsed.port, 10) : 6379);
-        if (!password && parsed.password) {
-          password = parsed.password;
-        }
-      } catch {}
+      this.client = new Redis(redisUrl, commonOptions);
+    } else {
+      this.client = new Redis({
+        host:
+          this.configService.get<string>('redis.host') ||
+          this.configService.get<string>('REDIS_HOST', 'localhost'),
+        port: Number(
+          this.configService.get('redis.port') ||
+          this.configService.get('REDIS_PORT', 6379),
+        ),
+        password:
+          this.configService.get<string>('redis.password') ||
+          this.configService.get<string>('REDIS_PASSWORD') ||
+          undefined,
+        ...commonOptions,
+      });
     }
-
-    host = host || this.configService.get<string>('redis.host', 'localhost');
-    port = port || this.configService.get<number>('redis.port', 6379);
-    password = password || this.configService.get<string>('redis.password');
-
-    this.client = redisUrl
-      ? new Redis(redisUrl, {
-          maxRetriesPerRequest: null,
-          lazyConnect: true,
-          retryStrategy: (times) => {
-            this.logger.warn(`Redis reconnecting... Attempt ${times}`);
-            this.connectionStatus = 'reconnecting';
-            return Math.min(times * 100, 10000);
-          },
-        })
-      : new Redis({
-          host,
-          port,
-          password: password || undefined,
-          maxRetriesPerRequest: null,
-          lazyConnect: true,
-          retryStrategy: (times) => {
-            this.logger.warn(`Redis reconnecting... Attempt ${times}`);
-            this.connectionStatus = 'reconnecting';
-            return Math.min(times * 100, 10000);
-          },
-        });
 
     this.client.on('ready', () => {
       if (this.connectionStatus !== 'connected') {
