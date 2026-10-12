@@ -1,7 +1,7 @@
 import { registerAs } from '@nestjs/config';
 
 export const appConfig = registerAs('app', () => ({
-  port: process.env.PORT,
+  port: parseInt(process.env.PORT || '3000', 10),
   env: process.env.NODE_ENV,
   logLevel: process.env.LOG_LEVEL || 'info',
   name: process.env.APP_NAME || 'vetsbridge',
