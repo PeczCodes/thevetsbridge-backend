@@ -9,8 +9,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RedisModule } from './redis/redis.module';
 import { CacheModule } from './cache/cache.module';
 import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { CustomThrottlerGuard } from './throttler/custom-throttler.guard';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AppThrottlerGuard } from './throttler/app-throttler.guard';
 import { RedisThrottlerStorage } from './redis/redis-throttler-storage';
 import { CloudinaryModule } from '../src/cloudinary/cloudinary.module';
 import { NotificationsQueueModule } from './queues/notifications-queue/notifications-queue.module';
@@ -75,7 +75,7 @@ import { DEFAULT_BULLMQ_OPTIONS } from '../config/bullmq.config';
     IdempotencyInterceptor,
     {
       provide: APP_GUARD,
-      useClass: CustomThrottlerGuard,
+      useClass: AppThrottlerGuard,
     },
     EncryptionService,
   ],

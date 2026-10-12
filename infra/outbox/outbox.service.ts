@@ -6,7 +6,8 @@ import { Queue } from 'bullmq';
 @Injectable()
 export class OutboxService {
   private readonly logger = new Logger(OutboxService.name);
-
+  private failed = []
+ 
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue('outbox-events')
@@ -14,9 +15,8 @@ export class OutboxService {
   ) {}
 
   async processUnpublishedEvents() {
-    await this.prisma.$transaction(async (tx) => {
-      // Fetch and lock unpublished events inside the transaction
-      const events = await tx.$queryRaw<any[]>`
+    
+    const unpublished = await this.prisma.$queryRaw<any[]>`
         SELECT *
         FROM "OutboxEvent"
         WHERE "published" = false
@@ -25,50 +25,44 @@ export class OutboxService {
         FOR UPDATE SKIP LOCKED
       `;
 
-      if (events.length === 0) {
-        return;
+    
+    if (!unpublished.length) return;
+    
+    
+    for (const event of unpublished) {
+      try {
+        await this.outboxQueue.add('process-event',
+          {
+            eventId: event.id,
+            type: event.type,
+            payload: event.payload
+          },
+          {
+            jobId: event.id,
+            attempts: 5,
+            backoff: {
+              type: 'exponential',
+              delay: 2000,
+            },
+          },
+        );
+        
+        await this.prisma.outboxEvent.update({
+          where: { id: event.id },
+          data: {
+            published: true,
+            publishedAt: new Date(),
+          },
+        })
       }
-
-      this.logger.log(`Found ${events.length} unpublished event(s).`);
-
-      for (const event of events) {
-        try {
-          this.logger.log(
-            `Queueing outbox event ${event.id} of type ${event.type}`,
-          );
-
-          await this.outboxQueue.add(
-            'process-event',
-            {
-              eventId: event.id,
-              type: event.type,
-              payload: event.payload,
-            },
-            {
-              jobId: event.id,
-              attempts: 5,
-              backoff: {
-                type: 'exponential',
-                delay: 2000,
-              },
-            },
-          );
-
-          await tx.outboxEvent.update({
-            where: { id: event.id },
-            data: {
-              published: true,
-              publishedAt: new Date(),
-            },
-          });
-        } catch (error) {
-          this.logger.error(
-            `Failed to publish event ${event.id} to queue`,
-            error,
-          );
-          throw error; // Rollback transaction so we retry next time
-        }
+      
+      catch (error) {
+        this.logger.error(
+          `Failed to publish event ${event.id} to queue`,
+          error,
+        );
+        throw error;
       }
-    });
+    }
   }
 }

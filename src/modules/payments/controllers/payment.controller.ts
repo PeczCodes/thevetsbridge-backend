@@ -69,7 +69,11 @@ export class PaymentController {
   })
   @ApiResponse({ status: 200, description: 'Payment status retrieved.' })
   @ApiResponse({ status: 404, description: 'Payment reference not found.' })
-  async getStatus(@Query('reference') reference: string) {
-    return this.paymentService.getPaymentStatus(reference);
+  @ApiResponse({ status: 403, description: 'This payment does not belong to you.' })
+  async getStatus(
+    @Query('reference') reference: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.paymentService.getPaymentStatus(reference, user.id);
   }
 }

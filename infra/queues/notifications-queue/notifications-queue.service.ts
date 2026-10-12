@@ -26,6 +26,7 @@ export class NotificationsQueueService {
         body,
         data,
       },
+      
       {
         attempts: 3,
         backoff: {

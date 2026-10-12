@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   Logger,
   Inject,
   forwardRef,
@@ -57,6 +58,14 @@ export class PaymentService {
       if (!order) {
         throw new NotFoundException(`Order ${targetId} not found`);
       }
+      if (order.userId !== userId) {
+        throw new ForbiddenException('You do not have permission to pay for this order');
+      }
+      if (order.status !== 'PENDING') {
+        throw new BadRequestException(
+          `Order cannot be paid in current status: ${order.status}`,
+        );
+      }
       parsedAmount = new Decimal(order.totalAmount);
     } else if (purpose === PaymentPurpose.APPOINTMENT) {
       const appointment = await this.prisma.appointment.findUnique({
@@ -67,6 +76,11 @@ export class PaymentService {
       });
       if (!appointment) {
         throw new NotFoundException(`Appointment ${targetId} not found`);
+      }
+      if (appointment.ownerId !== userId) {
+        throw new ForbiddenException(
+          'You do not have permission to pay for this appointment',
+        );
       }
       if (!appointment.vet.consultationFee) {
         throw new BadRequestException(
@@ -342,12 +356,42 @@ export class PaymentService {
         // Idempotency check: If already processed, make it a clean no-op
         if (
           payment.status === PaymentStatus.SUCCEEDED ||
-          payment.status === PaymentStatus.PAID_IN_ESCROW
+          payment.status === PaymentStatus.PAID_IN_ESCROW ||
+          payment.status === PaymentStatus.RELEASED
         ) {
           this.logger.log(
             `[Correlation ID: ${correlationId}] Payment ${reference} is already completed. No-op.`,
           );
+          if (eventId) {
+            await tx.webhookEventLog.update({
+              where: { eventId },
+              data: {
+                status: 'PROCESSED',
+                processedAt: new Date(),
+              },
+            });
+          }
           return;
+        }
+
+        // Strict Amount & Currency Validation to prevent underpayment / theft
+        const expectedAmount = new Decimal(payment.amount);
+        if (!verifyResult.amountPaid.gte(expectedAmount)) {
+          this.logger.error(
+            `[Correlation ID: ${correlationId}] Payment amount mismatch for Reference ${reference}: expected ${expectedAmount.toString()}, received ${verifyResult.amountPaid.toString()}`,
+          );
+          throw new BadRequestException(
+            `Payment amount mismatch. Expected: ${expectedAmount.toString()}, Received: ${verifyResult.amountPaid.toString()}`,
+          );
+        }
+
+        if (payment.currency && verifyResult.currency !== payment.currency) {
+          this.logger.error(
+            `[Correlation ID: ${correlationId}] Currency mismatch for Reference ${reference}: expected ${payment.currency}, received ${verifyResult.currency}`,
+          );
+          throw new BadRequestException(
+            `Payment currency mismatch. Expected: ${payment.currency}, Received: ${verifyResult.currency}`,
+          );
         }
 
         const newStatus =
@@ -413,10 +457,34 @@ export class PaymentService {
 
         // Update corresponding business module entities
         if (payment.purpose === 'ORDER' && payment.orderId) {
-          await tx.order.update({
+          const targetOrder = await tx.order.findUnique({
             where: { id: payment.orderId },
-            data: { status: 'PAID' },
           });
+
+          if (targetOrder?.status === 'CANCELLED') {
+            this.logger.warn(
+              `[Correlation ID: ${correlationId}] Order ${payment.orderId} was cancelled before payment completed. Payment held for review/refund.`,
+            );
+            await tx.auditLog.create({
+              data: {
+                userId: payment.userId,
+                action: 'PAYMENT_CANCELLED_ORDER_HOLD',
+                entityType: 'PAYMENT',
+                entityId: payment.id,
+                metadata: {
+                  reference,
+                  orderId: payment.orderId,
+                  amount: verifyResult.amountPaid.toString(),
+                  reason: 'Payment received for already cancelled order',
+                },
+              },
+            });
+          } else {
+            await tx.order.update({
+              where: { id: payment.orderId },
+              data: { status: 'PAID' },
+            });
+          }
         } else if (payment.purpose === 'APPOINTMENT' && payment.appointmentId) {
           await this.appointmentLifecycleService.transitionTo(
             payment.appointmentId,
@@ -505,7 +573,7 @@ export class PaymentService {
    * Uses Active Verification fallback: if the status is PENDING in the DB, it queries the Paystack API.
    * If Paystack shows success, it fulfills the transaction directly inside the request thread.
    */
-  async getPaymentStatus(reference: string) {
+  async getPaymentStatus(reference: string, userId?: string) {
     const payment = await this.prisma.payment.findUnique({
       where: { reference },
     });
@@ -513,6 +581,13 @@ export class PaymentService {
     if (!payment) {
       throw new NotFoundException(
         `Payment transaction not found for reference: ${reference}`,
+      );
+    }
+
+    // Ownership gate — prevents any authenticated user from probing other users' references
+    if (userId && payment.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to view this payment',
       );
     }
 

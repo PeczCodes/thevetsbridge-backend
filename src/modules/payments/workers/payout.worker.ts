@@ -6,6 +6,7 @@ import { PaystackProvider } from '../providers/paystack.provider';
 import { LedgerService } from '../services/ledger.service';
 import { FinancialTxStatus, LedgerAccountType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { ExternalServiceException } from '../../../../infra/circuit-breaker/exceptions/external-service.exception';
 
 @Processor('payout-queue')
 @Injectable()
@@ -131,10 +132,27 @@ export class PayoutWorker extends WorkerHost {
           { ...metadata, err: paystackError },
           'Paystack Transfer API call failed',
         );
-        await this.handleImmediateFailure(
-          transactionId,
-          paystackError.message || 'API connection failed',
-        );
+
+        // Prevent double-payout / infinite withdrawal glitch:
+        // NEVER mark transaction FAILED or refund balance on network timeouts / transient errors!
+        // Only mark FAILED if Paystack explicitly returned a non-retryable 4xx client rejection.
+        const isDefinitiveFailure =
+          paystackError instanceof ExternalServiceException &&
+          !paystackError.retryable &&
+          (paystackError.getStatus() === 400 || paystackError.getStatus() === 422);
+
+        if (isDefinitiveFailure) {
+          await this.handleImmediateFailure(
+            transactionId,
+            paystackError.message || 'API rejected transfer',
+          );
+        } else {
+          this.logger.warn(
+            { ...metadata, err: paystackError },
+            'Transfer attempt failed with transient/unknown error. Transaction left in PROCESSING to prevent double-payout. BullMQ will retry.',
+          );
+        }
+
         throw paystackError;
       }
 

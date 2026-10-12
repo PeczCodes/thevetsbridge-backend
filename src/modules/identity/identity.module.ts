@@ -16,6 +16,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { TokenService } from './auth/services/token.service';
 import { HashingService } from './auth/services/hash.service';
 import { SessionCleanupProcessor } from './auth/services/session-cleanup.processor';
+import { AccountLockoutService } from './auth/services/account-lockout.service';
 import { BullModule } from '@nestjs/bullmq';
 import { MediaModule } from '../media/media.module';
 
@@ -47,6 +48,7 @@ import { MediaModule } from '../media/media.module';
     AddressesService,
     TokenService,
     HashingService,
+    AccountLockoutService,
     JwtStrategy,
     GoogleStrategy,
     SessionCleanupProcessor,
@@ -59,6 +61,7 @@ import { MediaModule } from '../media/media.module';
     UsersService,
     TokenService,
     HashingService,
+    AccountLockoutService,
     AddressesService,
     JwtModule,
   ],

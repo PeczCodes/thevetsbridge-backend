@@ -9,6 +9,7 @@ import {
   Query,
   Headers,
   UseInterceptors,
+  Req,
 } from '@nestjs/common';
 import { ConsultationsService } from './consultations.service';
 import { ScheduleConsultationDto } from './dto/schedule-consultation.dto';
@@ -20,6 +21,7 @@ import { Idempotent } from '../../../../common/decorators/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../../common/interceptors/idempotency.interceptor';
 import { PaginationDto } from '../../../../common/dto/pagination.dto';
 import { Public } from '../../identity/auth/decorators/public.decorator';
+import { SkipThrottle } from '@nestjs/throttler';
 import { GetConsultationsDto } from './dto/get-consultations.dto';
 import {
   SubmitSummaryDto,
@@ -113,12 +115,20 @@ export class ConsultationsController {
   }
 
   @Public()
+  @SkipThrottle()
   @Post('webhooks/livekit')
   async handleWebhook(
     @Headers('Authorization') signature: string,
+    @Req() req: any,
     @Body() body: any,
   ) {
-    return this.consultationsService.handleLiveKitWebhook(body, signature);
+    const rawBodyBuffer = req.rawBody;
+    const rawBody = rawBodyBuffer
+      ? rawBodyBuffer.toString('utf8')
+      : typeof body === 'string'
+        ? body
+        : JSON.stringify(body);
+    return this.consultationsService.handleLiveKitWebhook(rawBody, signature);
   }
 
   // Lifecycle APIs

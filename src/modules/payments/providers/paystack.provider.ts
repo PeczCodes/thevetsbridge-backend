@@ -221,14 +221,22 @@ export class PaystackProvider implements IPaymentProvider, OnModuleInit {
   }
 
   verifyWebhookSignature(signature: string, rawBody: string): boolean {
-    if (this.secretKey === 'DISABLED') {
+    if (this.secretKey === 'DISABLED' || !signature || !rawBody) {
       return false;
     }
     const hash = crypto
       .createHmac('sha512', this.secretKey)
       .update(rawBody)
       .digest('hex');
-    return hash === signature;
+
+    const hashBuf = Buffer.from(hash, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+
+    if (hashBuf.length !== sigBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(hashBuf, sigBuf);
   }
 
   async listSupportedBanks(): Promise<Array<{ name: string; code: string }>> {

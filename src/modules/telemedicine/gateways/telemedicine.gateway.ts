@@ -127,23 +127,34 @@ export class TelemedicineGateway implements OnGatewayConnection {
     @MessageBody('consultationId') consultationId: string,
   ) {
     const user = socket.data.user;
-    if (!user) return;
+    if (!user || !consultationId) return;
 
     try {
-      // Validate that the user is indeed a participant of the consultation
-      const isParticipant = await this.consultationsService.isParticipant(
-        user.id,
-        consultationId,
-      );
+      const consultation =
+        await this.consultationsService.findConsultationByIdOrAppt(
+          consultationId,
+          { vet: true },
+        );
+
+      if (!consultation) {
+        socket.emit('error', 'Consultation not found');
+        return;
+      }
+
+      const isParticipant =
+        consultation.customerId === user.id ||
+        consultation.vet?.userId === user.id;
+
       if (!isParticipant) {
         socket.emit('error', 'Not authorized to join this consultation room');
         return;
       }
 
-      const roomName = `consultation:${consultationId}`;
+      // Always join canonical room by consultation.id
+      const roomName = `consultation:${consultation.id}`;
       await socket.join(roomName);
       this.logger.log(`User ${user.id} joined room ${roomName}`);
-      socket.emit('joined_room', { room: roomName });
+      socket.emit('joined_room', { room: roomName, consultationId: consultation.id });
     } catch (err) {
       socket.emit('error', 'Failed to join consultation room');
     }
@@ -155,7 +166,7 @@ export class TelemedicineGateway implements OnGatewayConnection {
     @MessageBody() payload: { consultationId: string; content: string },
   ) {
     const user = socket.data.user;
-    if (!user || !payload.consultationId || !payload.content) return;
+    if (!user || !payload?.consultationId || !payload?.content) return;
 
     try {
       // Send message via service (this enforces status and follow-up expiration checks)
@@ -165,12 +176,13 @@ export class TelemedicineGateway implements OnGatewayConnection {
         payload.content,
       );
 
-      const roomName = `consultation:${payload.consultationId}`;
+      // Always broadcast to canonical consultation room
+      const roomName = `consultation:${message.consultationId}`;
       this.server.to(roomName).emit('consultation_message', message);
       this.logger.log(
         `Consultation message sent by ${user.id} in room ${roomName}`,
       );
-    } catch (err) {
+    } catch (err: any) {
       socket.emit(
         'error',
         err.message || 'Failed to send consultation message',

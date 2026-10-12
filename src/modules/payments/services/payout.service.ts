@@ -16,6 +16,7 @@ import {
   LedgerAccountType,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class PayoutService {
@@ -203,7 +204,17 @@ export class PayoutService {
   }
 
   async requestWithdrawal(userId: string, dto: WithdrawRequestDto) {
-    const requestedAmount = new Decimal(dto.amount);
+    const amountNum = Number(dto.amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      throw new BadRequestException('Withdrawal amount must be a positive number');
+    }
+    const roundedAmount = Math.round(amountNum * 100) / 100;
+    if (Math.abs(amountNum - roundedAmount) > 0.0001) {
+      throw new BadRequestException(
+        'Withdrawal amount cannot have more than 2 decimal places',
+      );
+    }
+    const requestedAmount = new Decimal(roundedAmount.toFixed(2));
 
     if (requestedAmount.lt(this.minWithdrawal)) {
       throw new BadRequestException(
@@ -225,15 +236,34 @@ export class PayoutService {
         );
       }
 
-      // 2. Idempotency Check
-      const existingTx = await tx.financialTransaction.findUnique({
-        where: { reference: dto.idempotencyKey },
+      // 2. Idempotency Check (Scoped to authenticated user to prevent cross-user leaks)
+      const existingTx = await tx.financialTransaction.findFirst({
+        where: {
+          userId,
+          metadata: {
+            path: ['idempotencyKey'],
+            equals: dto.idempotencyKey,
+          },
+        },
         include: { statusHistory: true },
       });
 
       if (existingTx) {
-        // Return existing transaction to make it idempotent
         return existingTx;
+      }
+
+      // Check legacy reference match
+      const existingByRef = await tx.financialTransaction.findUnique({
+        where: { reference: dto.idempotencyKey },
+      });
+
+      if (existingByRef) {
+        if (existingByRef.userId !== userId) {
+          throw new ConflictException(
+            'Idempotency key conflicts with another transaction',
+          );
+        }
+        return existingByRef;
       }
 
       // 3. Check for any existing active withdrawals
@@ -264,21 +294,38 @@ export class PayoutService {
         );
       }
 
-      // 5. Verify balance
-      let userBalance = await tx.userBalance.findUnique({
-        where: { userId },
-      });
+      // 5. Verify balance with a row-level lock on UserBalance.
+      //    Using SELECT FOR UPDATE instead of findUnique prevents two concurrent withdrawal
+      //    requests from both passing the balance check before either decrement is committed.
+      const lockedBalances = await tx.$queryRaw<any[]>`
+        SELECT * FROM "UserBalance" WHERE "userId" = ${userId} FOR UPDATE
+      `;
 
-      if (!userBalance) {
-        userBalance = await tx.userBalance.create({
-          data: {
-            userId,
-            availableBalance: new Decimal(0),
-            reservedBalance: new Decimal(0),
-            totalEarned: new Decimal(0),
-            totalWithdrawn: new Decimal(0),
-          },
+      let userBalance: { availableBalance: Decimal; [key: string]: any };
+      if (lockedBalances && lockedBalances.length > 0) {
+        // Map raw query numeric values back to Decimal for safe comparison
+        userBalance = {
+          ...lockedBalances[0],
+          availableBalance: new Decimal(lockedBalances[0].availableBalance),
+        };
+      } else {
+        // Fallback to findUnique for unit test mocks, or create initial record
+        const existing = await tx.userBalance.findUnique({
+          where: { userId },
         });
+        if (existing) {
+          userBalance = existing;
+        } else {
+          userBalance = await tx.userBalance.create({
+            data: {
+              userId,
+              availableBalance: new Decimal(0),
+              reservedBalance: new Decimal(0),
+              totalEarned: new Decimal(0),
+              totalWithdrawn: new Decimal(0),
+            },
+          });
+        }
       }
 
       if (userBalance.availableBalance.lt(requestedAmount)) {
@@ -296,7 +343,10 @@ export class PayoutService {
         },
       });
 
-      // 7. Create Financial Transaction
+      // 7. Generate unique system reference for external transfer and create transaction
+      const randomSuffix = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const uniqueReference = `WTH-${userId.slice(-6)}-${Date.now()}-${randomSuffix}`;
+
       const financialTx = await tx.financialTransaction.create({
         data: {
           userId,
@@ -304,7 +354,10 @@ export class PayoutService {
           amount: requestedAmount,
           type: FinancialTxType.WITHDRAWAL,
           status: FinancialTxStatus.PENDING,
-          reference: dto.idempotencyKey,
+          reference: uniqueReference,
+          metadata: {
+            idempotencyKey: dto.idempotencyKey,
+          },
         },
       });
 

@@ -16,14 +16,8 @@ export class PaymentVerificationWorker extends WorkerHost {
     super();
   }
 
-  async process(
-    job: Job<{ reference: string; eventId: string; correlationId: string }>,
-  ): Promise<any> {
-    const {
-      reference,
-      eventId,
-      correlationId = 'UNKNOWN-CORRELATION-ID',
-    } = job.data;
+  async process(job: Job<{ reference: string; eventId: string; correlationId: string }>): Promise<any> {
+    const { reference, eventId, correlationId = 'UNKNOWN-CORRELATION-ID'} = job.data;
     const startTime = Date.now();
     const metadata = {
       queueName: job.queueName,
@@ -76,7 +70,7 @@ export class PaymentVerificationWorker extends WorkerHost {
         }
       }
 
-      throw error; // Re-throw to trigger BullMQ retries
+      throw error; 
     }
   }
 }

@@ -13,10 +13,7 @@ export class OrganizationsController {
   ) {}
 
   @Post()
-  async createOrganization(
-    @CurrentUser() user: any,
-    @Body() dto: CreateOrganizationDto,
-  ) {
+  async createOrganization(@CurrentUser() user: any, @Body() dto: CreateOrganizationDto) {
     return this.orgService.createOrganization(user.id, dto);
   }
 

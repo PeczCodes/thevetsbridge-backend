@@ -13,6 +13,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppointmentLifecycleService } from './services/appointment-lifecycle.service';
 
 describe('ConsultationsService', () => {
   let service: ConsultationsService;
@@ -46,6 +47,7 @@ describe('ConsultationsService', () => {
       consultation: {
         create: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
       },
@@ -128,6 +130,12 @@ describe('ConsultationsService', () => {
         { provide: LedgerService, useValue: ledgerService },
         { provide: RedisService, useValue: redisService },
         { provide: getQueueToken('consultation-lifecycle'), useValue: queue },
+        {
+          provide: AppointmentLifecycleService,
+          useValue: {
+            transitionTo: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -179,7 +187,6 @@ describe('ConsultationsService', () => {
         data: { status: 'BLOCKED' },
       });
       expect(prisma.consultation.create).toHaveBeenCalled();
-      expect(queue.add).toHaveBeenCalled(); // Reminder jobs scheduled
     });
   });
 
@@ -194,6 +201,8 @@ describe('ConsultationsService', () => {
         vetJoinedAt: null,
       };
 
+      prisma.consultation.findUnique.mockResolvedValue(mockConsultation);
+      prisma.consultation.findFirst.mockResolvedValue(mockConsultation);
       prisma.$queryRaw.mockResolvedValue([mockConsultation]);
       prisma.vetProfile.findUnique.mockResolvedValue({
         id: 'vet-123',

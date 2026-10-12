@@ -10,7 +10,7 @@ The background queue subsystem offloads long-running, asynchronous, and schedule
 
 * **Queue Module**: `infra/queues/notifications-queue/notifications-queue.module.ts`
 * **Workers**:
-  - `infra/outbox/outbox.worker.ts` (`outbox-events` queue)
+  - `infra/outbox/outbox.processor.ts` (`outbox-events` queue)
   - `infra/queues/notifications-queue/notifications-queue.worker.ts` (`notifications` queue)
   - `src/modules/telemedicine/consultations/services/consultation-lifecycle.worker.ts` (`consultation-lifecycle` queue)
   - `src/modules/telemedicine/consultations/services/unpaid-booking-cleanup.processor.ts` (`unpaid-booking-cleanup` queue)
@@ -24,8 +24,8 @@ The background queue subsystem offloads long-running, asynchronous, and schedule
 
 | Queue Name | Worker Class | Trigger Source | Job Actions & Description | Retry Policy |
 | :--- | :--- | :--- | :--- | :--- |
-| **`outbox-events`** | `OutboxWorker` | `OutboxProcessor` polling | Processes `USER_REGISTERED`, `CONSULTATION_SCHEDULED`, `PAYMENT_COMPLETED`, `ORDER_PLACED` | Exponential Backoff (3 attempts) |
-| **`notifications`** | `NotificationsQueueWorker` | OutboxWorker / Services | Dispatches `send-email` (Resend API) and `send-push` notifications | Exponential Backoff (5 attempts) |
+| **`outbox-events`** | `OutboxProcessor` | `OutboxPoller` polling | Processes `USER_REGISTERED`, `CONSULTATION_SCHEDULED`, `PAYMENT_COMPLETED`, `ORDER_PLACED` | Exponential Backoff (3 attempts) |
+| **`notifications`** | `NotificationsQueueWorker` | OutboxProcessor / Services | Dispatches `send-email` (Resend API) and `send-push` notifications | Exponential Backoff (5 attempts) |
 | **`consultation-lifecycle`** | `ConsultationLifecycleWorker` | Appointment booking | `reminder` (24h/1h pre-call), `no-show`, `reconnect-timeout`, `escrow-release` | Fixed Backoff (3 attempts) |
 | **`payment-verification-queue`** | `PaymentVerificationWorker` | Paystack Webhook | Verifies reference, completes payments, updates order/appointment state | Exponential Backoff (5 attempts) |
 | **`payout-queue`** | `PayoutWorker` | Outbox / Withdrawal API | Initiates bank transfer payouts via Paystack API with DB locks | Manual / Strict Idempotent Retry |

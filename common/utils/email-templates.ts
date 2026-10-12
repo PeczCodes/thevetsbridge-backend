@@ -66,7 +66,7 @@ const baseLayout = (content: string) => `
         ${content}
       </div>
       <div class="footer">
-        <p style="margin: 0 0 6px 0;">This email was sent automatically by VetsBridge.</p>
+        <p style="margin: 0 0 6px 0">This email was sent automatically by VetsBridge.</p>
         <p style="margin: 0 0 12px 0;">&copy; 2026 VetsBridge. All rights reserved.</p>
         <p style="margin: 0;"><a href="https://vetsbridge.org">Visit Platform</a> &bull; <a href="mailto:support@vetsbridge.org">Contact Support</a></p>
       </div>

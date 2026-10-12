@@ -67,7 +67,9 @@ import { metricsConfig } from '../config/metrics.config';
     MediaModule,
     NotificationsModule,
   ],
+
   controllers: [AppController],
+
   providers: [
     AppService,
     {
@@ -80,4 +82,4 @@ import { metricsConfig } from '../config/metrics.config';
     },
   ],
 })
-export class AppModule {}
+export class AppModule { }

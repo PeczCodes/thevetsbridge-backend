@@ -31,9 +31,7 @@ async function bootstrap() {
   });
 
   app.use(cookieParser());
-
-
-
+  
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: API_VERSION,

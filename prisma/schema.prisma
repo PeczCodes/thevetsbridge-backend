@@ -67,14 +67,14 @@ model Session {
 }
 
 model PasswordResetToken {
-  id         String    @id @default(cuid())
-  userId     String
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  usedAt     DateTime?
-  createdAt  DateTime  @default(now())
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -356,37 +356,37 @@ model Appointment {
 }
 
 model Consultation {
-  id                      String              @id @default(cuid())
-  animalId                String
-  vetId                   String
-  customerId              String
-  mode                    ConsultationMode
-  status                  ConsultationStatus  @default(SCHEDULED)
-  scheduledAt             DateTime?
-  startedAt               DateTime?
-  endedAt                 DateTime?
-  followUpExpiresAt       DateTime?
-  notes                   String?
-  reason                  String?
-  symptoms                String?
-  files                   Json?
-  vetJoinedAt             DateTime?
-  customerJoinedAt        DateTime?
-  summarySubmittedAt      DateTime?
-  disputeWindowExpiresAt  DateTime?
-  cancellationReason      CancellationReason?
-  createdAt               DateTime            @default(now())
-  appointmentId           String?             @unique
-  chatMessages            ChatMessage[]
-  animal                  Animal              @relation(fields: [animalId], references: [id])
-  appointment             Appointment?        @relation(fields: [appointmentId], references: [id])
-  customer                User                @relation("CustomerConsultations", fields: [customerId], references: [id])
-  vet                     VetProfile          @relation("VetConsultations", fields: [vetId], references: [id])
-  prescriptions           Prescription[]
-  session                 ConsultationSession?
-  dispute                 ConsultationDispute?
-  medicalRecord           MedicalRecord?
-  presences               ConsultationPresence[]
+  id                     String                 @id @default(cuid())
+  animalId               String
+  vetId                  String
+  customerId             String
+  mode                   ConsultationMode
+  status                 ConsultationStatus     @default(SCHEDULED)
+  scheduledAt            DateTime?
+  startedAt              DateTime?
+  endedAt                DateTime?
+  followUpExpiresAt      DateTime?
+  notes                  String?
+  reason                 String?
+  symptoms               String?
+  files                  Json?
+  vetJoinedAt            DateTime?
+  customerJoinedAt       DateTime?
+  summarySubmittedAt     DateTime?
+  disputeWindowExpiresAt DateTime?
+  cancellationReason     CancellationReason?
+  createdAt              DateTime               @default(now())
+  appointmentId          String?                @unique
+  chatMessages           ChatMessage[]
+  animal                 Animal                 @relation(fields: [animalId], references: [id])
+  appointment            Appointment?           @relation(fields: [appointmentId], references: [id])
+  customer               User                   @relation("CustomerConsultations", fields: [customerId], references: [id])
+  vet                    VetProfile             @relation("VetConsultations", fields: [vetId], references: [id])
+  prescriptions          Prescription[]
+  session                ConsultationSession?
+  dispute                ConsultationDispute?
+  medicalRecord          MedicalRecord?
+  presences              ConsultationPresence[]
 
   @@index([scheduledAt])
   @@index([customerId])
@@ -395,7 +395,7 @@ model Consultation {
 }
 
 model MedicalRecord {
-  id              String      @id @default(cuid())
+  id              String        @id @default(cuid())
   animalId        String
   recordedByVetId String?
   title           String
@@ -403,11 +403,11 @@ model MedicalRecord {
   treatment       String?
   notes           String?
   attachments     Json?
-  consultationId  String?     @unique
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  animal          Animal      @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  recordedByVet   VetProfile? @relation(fields: [recordedByVetId], references: [id])
+  consultationId  String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  animal          Animal        @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  recordedByVet   VetProfile?   @relation(fields: [recordedByVetId], references: [id])
   consultation    Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
 
   @@index([animalId])
@@ -691,6 +691,17 @@ model LedgerEntry {
   @@index([createdAt])
 }
 
+model LedgerBalanceSnapshot {
+  id          String            @id @default(cuid())
+  accountType LedgerAccountType
+  accountId   String
+  balance     Decimal           @db.Decimal(14, 2)
+  snapshotAt  DateTime          @default(now())
+  createdAt   DateTime          @default(now())
+
+  @@index([accountType, accountId, snapshotAt(sort: Desc)])
+}
+
 model WebhookEventLog {
   id           String             @id @default(cuid())
   provider     PaymentProvider
@@ -964,6 +975,7 @@ enum AppointmentType {
 
 enum AppointmentStatus {
   PENDING
+  PENDING_PAYMENT
   CONFIRMED
   IN_PROGRESS
   COMPLETED
@@ -1311,7 +1323,7 @@ enum FinancialTxStatus {
 model ConsultationSession {
   id             String       @id @default(cuid())
   consultationId String       @unique
-  provider       String       // "LIVEKIT", "DAILY", etc.
+  provider       String // "LIVEKIT", "DAILY", etc.
   roomId         String
   meetingId      String
   sessionToken   String?
@@ -1327,7 +1339,7 @@ model ConsultationPresence {
   id              String       @id @default(cuid())
   consultationId  String
   userId          String
-  role            String       // "VET" or "CUSTOMER"
+  role            String // "VET" or "CUSTOMER"
   joinedAt        DateTime     @default(now())
   leftAt          DateTime?
   lastHeartbeatAt DateTime     @default(now())

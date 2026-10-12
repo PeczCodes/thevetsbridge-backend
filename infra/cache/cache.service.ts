@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { DistributedLockService } from './distributed-lock.service';
+import { SingleFlightService } from './single-flight.service';
 import { CacheKeys } from './cache-keys';
 import { MonitoringService } from '../../src/monitoring/monitoring.service';
 import {
@@ -18,87 +19,90 @@ export class CacheService {
   constructor(
     private readonly redisService: RedisService,
     private readonly distributedLockService: DistributedLockService,
+    @Optional() private readonly singleFlightService: SingleFlightService = new SingleFlightService(),
     @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
-  
+
   async getOrSet<T>(key: string, factory: () => Promise<T>, ttlSeconds: number): Promise<T> {
-    if (!this.redisService.isAvailable()) {
-      this.logger.warn(`Redis unavailable. Bypassing cache for key "${key}" and falling back to database.`);
-      return factory();
-    }
-
-    // 1. Attempt normal cache lookup.
-    try {
-      const cached = await this.redisService.getClient().get(key);
-      if (cached !== null) {
-        return JSON.parse(cached) as T;
+    return this.singleFlightService.execute(key, async () => {
+      if (!this.redisService.isAvailable()) {
+        this.logger.warn(`Redis unavailable. Bypassing cache for key "${key}" and falling back to database.`);
+        return factory();
       }
-    } catch (error) {
-      this.logger.warn(`Failed to read from cache for key "${key}":`, error);
-    }
 
-    // 2. Cache miss: acquire distributed lock to protect database
-    const lockKey = `lock:cache:${key}`;
-    const ttlMs = 10000; // 10 seconds lock lifetime to regenerate entry safely
-
-    try {
-      return await this.distributedLockService.using(lockKey, ttlMs, async () => {
-        // Double-check: Another instance might have populated Redis while this process waited
-        try {
-          const cachedDoubleCheck = await this.redisService.getClient().get(key);
-          if (cachedDoubleCheck !== null) {
-            this.logger.log(`[Cache Stampede] Cache populated by another node for key "${key}". Reusing value.`);
-            return JSON.parse(cachedDoubleCheck) as T;
-          }
-        } catch (error) {
-          this.logger.warn(`[Cache Stampede] Double-check read failed for key "${key}":`, error);
+      // 1. Attempt normal cache lookup.
+      try {
+        const cached = await this.redisService.getClient().get(key);
+        if (cached !== null) {
+          return JSON.parse(cached) as T;
         }
+      } catch (error) {
+        this.logger.warn(`Failed to read from cache for key "${key}":`, error);
+      }
 
-        // Lock holder executes factory
-        this.logger.log(`[Cache Stampede] Lock acquired. Executing regeneration factory for key "${key}".`);
-        const result = await factory();
+      // 2. Cache miss: acquire distributed lock to protect database
+      const lockKey = `lock:cache:${key}`;
+      const ttlMs = 10000; // 10 seconds lock lifetime to regenerate entry safely
 
-        // Save to cache with Jitter
-        const maxJitter = Math.min(ttlSeconds * 0.1, 5);
-        const jitter = Math.floor((Math.random() - 0.5) * maxJitter * 2);
-        const finalTtl = Math.max(1, ttlSeconds + jitter);
-
-        try {
-          await this.redisService.getClient().set(key, JSON.stringify(result), 'EX', finalTtl);
-        } catch (setErr) {
-          this.logger.warn(`Failed to write to cache for key "${key}":`, setErr);
-        }
-
-        return result;
-      });
-    } catch (err: any) {
-      // 3. Lock acquisition failed (contention / timeout)
-      // Retry cache lookup a few times with short delay (backoff) to wait for owner to populate cache
-      this.logger.warn(`[Cache Stampede] Failed to acquire lock for key "${key}". Retrying cache lookup...`);
-      
-      const retryAttempts = 5;
-      const retryDelayMs = 100;
-
-      for (let attempt = 1; attempt <= retryAttempts; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-        
-        try {
-          if (this.redisService.isAvailable()) {
-            const retryCached = await this.redisService.getClient().get(key);
-            if (retryCached !== null) {
-              this.logger.log(`[Cache Stampede] Cache found on retry attempt ${attempt} for key "${key}".`);
-              return JSON.parse(retryCached) as T;
+      try {
+        return await this.distributedLockService.using(lockKey, ttlMs, async () => {
+          // Double-check: Another instance might have populated Redis while this process waited
+          try {
+            const cachedDoubleCheck = await this.redisService.getClient().get(key);
+            if (cachedDoubleCheck !== null) {
+              this.logger.log(`[Cache Stampede] Cache populated by another node for key "${key}". Reusing value.`);
+              return JSON.parse(cachedDoubleCheck) as T;
             }
+          } catch (error) {
+            this.logger.warn(`[Cache Stampede] Double-check read failed for key "${key}":`, error);
           }
-        } catch (retryReadErr) {
-          this.logger.warn(`Failed to read from cache during retry for key "${key}":`, retryReadErr);
-        }
-      }
 
-      // 4. Fallback to direct execution if cache is still not populated
-      this.logger.warn(`[Cache Stampede] Cache still missing for key "${key}" after retries. Falling back to database directly.`);
-      return factory();
-    }
+          // Lock holder executes factory
+          this.logger.log(`[Cache Stampede] Lock acquired. Executing regeneration factory for key "${key}".`);
+          const result = await factory();
+
+          // Save to cache with Jitter
+          const maxJitter = Math.min(ttlSeconds * 0.1, 5);
+          const jitter = Math.floor((Math.random() - 0.5) * maxJitter * 2);
+          const finalTtl = Math.max(1, ttlSeconds + jitter);
+
+          try {
+            await this.redisService.getClient().set(key, JSON.stringify(result), 'EX', finalTtl);
+          } catch (setErr) {
+            this.logger.warn(`Failed to write to cache for key "${key}":`, setErr);
+          }
+
+          return result;
+        });
+      } catch (err: any) {
+        // 3. Lock acquisition failed (contention / timeout)
+        // Retry cache lookup a few times with short delay (backoff) to wait for owner to populate cache
+        this.logger.warn(`[Cache Stampede] Failed to acquire lock for key "${key}". Retrying cache lookup...`);
+        
+        const retryAttempts = 5;
+        const retryDelayMs = 100;
+
+        for (let attempt = 1; attempt <= retryAttempts; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+          
+          try {
+            if (this.redisService.isAvailable()) {
+              const retryCached = await this.redisService.getClient().get(key);
+              if (retryCached !== null) {
+                this.logger.log(`[Cache Stampede] Cache found on retry attempt ${attempt} for key "${key}".`);
+                return JSON.parse(retryCached) as T;
+              }
+            }
+          } catch (retryReadErr) {
+            this.logger.warn(`Failed to read from cache during retry for key "${key}":`, retryReadErr);
+          }
+        }
+
+        // 4. Fallback to direct execution if cache is still not populated
+        this.logger.warn(`[Cache Stampede] Cache still missing for key "${key}" after retries. Falling back to database directly.`);
+        return factory();
+      }
+    });
   }
 
   async get(key: string): Promise<string | null> {

@@ -1,6 +1,6 @@
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth.service';
 
@@ -77,6 +77,17 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     try {
       const user =
         await this.authService.validateOrCreateGoogleUser(googleUser);
+
+      // Honour account suspensions — same check that exists in the password login flow.
+      if (!user || !user.isActive) {
+        return done(
+          new UnauthorizedException(
+            'Account is deactivated. Please contact support.',
+          ),
+          undefined,
+        );
+      }
+
       done(null, user as any);
     } catch (err) {
       done(err, undefined);

@@ -113,6 +113,7 @@ export class AppointmentLifecycleService {
       // 2. Validate state machine transition rules
       const allowedTransitions: Record<AppointmentStatus, AppointmentStatus[]> = {
         PENDING: ['CONFIRMED', 'CANCELLED', 'RESCHEDULED'],
+        PENDING_PAYMENT: ['PENDING', 'CONFIRMED', 'CANCELLED'],
         CONFIRMED: ['IN_PROGRESS', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'],
         IN_PROGRESS: ['COMPLETED'],
         COMPLETED: [],
@@ -293,26 +294,29 @@ export class AppointmentLifecycleService {
             }).catch((err: any) => this.logger.warn(`Could not increment totalConsults: ${err.message}`));
           }
 
-          if (appointment.vet?.userId) {
-            const grossFee = Number(appointment.amount || appointment.consultationFee || appointment.vet.consultationFee || 45000);
-            const commissionSetting = await tx.systemSetting.findUnique({
-              where: { key: 'commission_rate' },
-            });
-            const commissionRate = parseFloat(commissionSetting?.value || '5');
-            const netEarnings = grossFee * ((100 - commissionRate) / 100);
+          // Compute dispute resolution window (default 24h, configurable via TELEMEDICINE_DISPUTE_WINDOW_HOURS).
+          // Funds remain in PLATFORM_ESCROW during this window to allow customer dispute resolution.
+          const disputeHours =
+            this.configService.get<number>('telemedicine.disputeWindowHours') ?? 24;
+          const disputeExpiry = new Date(
+            Date.now() + disputeHours * 60 * 60 * 1000,
+          );
+          consultationUpdateData.disputeWindowExpiresAt = disputeExpiry;
 
-            await tx.userBalance.upsert({
-              where: { userId: appointment.vet.userId },
-              create: {
-                userId: appointment.vet.userId,
-                totalEarned: netEarnings,
-                availableBalance: netEarnings,
+          // Schedule delayed escrow release job on BullMQ. When the window expires without dispute,
+          // ConsultationLifecycleWorker releases funds to VET_BALANCE and updates UserBalance atomically.
+          if (appointment.consultation?.id) {
+            await this.lifecycleQueue.add(
+              'escrow-release-job',
+              {
+                consultationId: appointment.consultation.id,
+                type: 'escrow-release',
               },
-              update: {
-                totalEarned: { increment: netEarnings },
-                availableBalance: { increment: netEarnings },
+              {
+                delay: disputeHours * 60 * 60 * 1000,
+                jobId: `escrow-release-${appointment.consultation.id}`,
               },
-            }).catch((err: any) => this.logger.warn(`Could not update UserBalance: ${err.message}`));
+            );
           }
 
           // Notify both users
@@ -652,7 +656,7 @@ export class AppointmentLifecycleService {
     const payment = await tx.payment.findFirst({
       where: {
         appointmentId: consultation.appointmentId,
-        status: 'PAID_IN_ESCROW',
+        status: { in: ['PAID_IN_ESCROW', 'RELEASED'] },
       },
     });
 

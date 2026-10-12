@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../../../infra/prisma/prisma.service';
-import { Prisma, LedgerAccountType, LedgerEntryType } from '@prisma/client';
+import {
+  Prisma,
+  LedgerAccountType,
+  LedgerEntryType,
+  PaymentStatus,
+} from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
 @Injectable()
@@ -9,17 +14,33 @@ export class LedgerService {
 
   /**
    * Helper to sum Credit entries minus Debit entries for a specific account.
-   * This derives the wallet or earnings balance safely from historical ledger rows.
+   * Leverages LedgerBalanceSnapshot to avoid scanning full historical ledger tables.
    */
   async getAccountBalance(
     accountId: string,
     accountType: LedgerAccountType,
   ): Promise<Decimal> {
+    const latestSnapshot = await this.prisma.ledgerBalanceSnapshot.findFirst({
+      where: {
+        accountId,
+        accountType,
+      },
+      orderBy: {
+        snapshotAt: 'desc',
+      },
+    });
+
+    const baselineBalance = latestSnapshot
+      ? new Decimal(latestSnapshot.balance)
+      : new Decimal(0);
+    const sinceDate = latestSnapshot?.snapshotAt;
+
     const aggregations = await this.prisma.ledgerEntry.groupBy({
       by: ['type'],
       where: {
         accountId,
         accountType,
+        ...(sinceDate && { createdAt: { gt: sinceDate } }),
       },
       _sum: {
         amount: true,
@@ -40,7 +61,29 @@ export class LedgerService {
       }
     }
 
-    return credits.minus(debits);
+    return baselineBalance.plus(credits).minus(debits);
+  }
+
+  /**
+   * Creates a point-in-time snapshot of the computed balance for an account.
+   * Can be invoked by scheduled cron/workers to keep queries bounded.
+   */
+  async createBalanceSnapshot(
+    accountId: string,
+    accountType: LedgerAccountType,
+    tx?: Prisma.TransactionClient,
+  ): Promise<Decimal> {
+    const client = tx || this.prisma;
+    const balance = await this.getAccountBalance(accountId, accountType);
+    await client.ledgerBalanceSnapshot.create({
+      data: {
+        accountId,
+        accountType,
+        balance,
+        snapshotAt: new Date(),
+      },
+    });
+    return balance;
   }
 
   /**
@@ -198,7 +241,7 @@ export class LedgerService {
     await tx.ledgerEntry.createMany({
       data: [
         {
-          paymentId: '',
+          paymentId: null,
           accountType: accountType,
           accountId: userId,
           amount: amount,
@@ -207,7 +250,7 @@ export class LedgerService {
           description: `Withdrawal payout completed for withdrawal ID: ${withdrawalId}`,
         },
         {
-          paymentId: '',
+          paymentId: null,
           accountType: LedgerAccountType.EXTERNAL_PROVIDER,
           accountId: 'PAYSTACK_GATEWAY',
           amount: amount,
@@ -230,6 +273,7 @@ export class LedgerService {
 
   /**
    * Processes a refund via offsetting credit/debit ledger entries.
+   * Guards against double refund and checks payment status to ensure escrow does not go negative.
    */
   async recordRefundLedgerEntries(
     tx: Prisma.TransactionClient,
@@ -241,6 +285,107 @@ export class LedgerService {
   ): Promise<void> {
     const ledgerRefBase = `REFUND-${refundId}`;
 
+    // 1. Inspect payment to check whether funds are in escrow or were already released
+    const payment = await tx.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        appointment: {
+          include: {
+            vet: true,
+          },
+        },
+      },
+    });
+
+    if (payment) {
+      if (payment.status === PaymentStatus.REFUNDED) {
+        throw new ConflictException(
+          `Payment ${paymentId} has already been refunded`,
+        );
+      }
+      if (
+        payment.status !== PaymentStatus.PAID_IN_ESCROW &&
+        payment.status !== PaymentStatus.RELEASED
+      ) {
+        throw new BadRequestException(
+          `Cannot refund payment ${paymentId} with status ${payment.status}`,
+        );
+      }
+    }
+
+    // 2. If escrow was ALREADY released, reversing from PLATFORM_ESCROW would cause
+    // the escrow account to go negative. We must claw back from provider and platform fees.
+    if (payment && payment.status === PaymentStatus.RELEASED) {
+      const commissionSetting = await tx.systemSetting.findUnique({
+        where: { key: 'commission_rate' },
+      });
+      const commissionPercent = parseFloat(commissionSetting?.value || '5');
+      const platformFee = amount.mul(commissionPercent / 100);
+      const netProviderAmount = amount.minus(platformFee);
+
+      // Determine provider user ID and account type
+      const isOrder = purpose === 'ORDER';
+      const providerAccountType = isOrder
+        ? LedgerAccountType.VENDOR_BALANCE
+        : LedgerAccountType.VET_BALANCE;
+      const providerUserId =
+        payment.appointment?.vet?.userId || payment.userId;
+
+      await tx.ledgerEntry.createMany({
+        data: [
+          {
+            refundId,
+            accountType: providerAccountType,
+            accountId: providerUserId,
+            amount: netProviderAmount,
+            type: LedgerEntryType.DEBIT, // Debit provider to claw back earnings
+            reference: `${ledgerRefBase}-${providerAccountType}-DEBIT`,
+            description: `Refund reversal of released earnings, refundId: ${refundId}`,
+          },
+          {
+            refundId,
+            accountType: LedgerAccountType.PLATFORM_REVENUE,
+            accountId: 'PLATFORM',
+            amount: platformFee,
+            type: LedgerEntryType.DEBIT, // Debit platform fee
+            reference: `${ledgerRefBase}-PLAT-DEBIT`,
+            description: `Refund reversal of platform commission, refundId: ${refundId}`,
+          },
+          {
+            refundId,
+            accountType: LedgerAccountType.CUSTOMER_WALLET,
+            accountId: userId,
+            amount: amount,
+            type: LedgerEntryType.CREDIT, // Credit customer wallet
+            reference: `${ledgerRefBase}-CUST-CREDIT`,
+            description: `Refund credit to customer wallet, refundId: ${refundId}`,
+          },
+        ],
+      });
+
+      // Update projections: debit provider, credit customer
+      await this.updateBalanceProjection(
+        tx,
+        providerUserId,
+        netProviderAmount,
+        LedgerEntryType.DEBIT,
+      );
+      await this.updateBalanceProjection(
+        tx,
+        userId,
+        amount,
+        LedgerEntryType.CREDIT,
+      );
+
+      // Mark payment as refunded
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.REFUNDED },
+      });
+      return;
+    }
+
+    // 3. Normal Escrow Path (PAID_IN_ESCROW or fallback when purpose matches)
     if (purpose === 'ORDER' || purpose === 'APPOINTMENT') {
       // Reversing escrow: Debit Platform Escrow, Credit Customer Wallet
       await tx.ledgerEntry.createMany({
@@ -273,17 +418,30 @@ export class LedgerService {
         amount,
         LedgerEntryType.CREDIT,
       );
+
+      // Transition payment status to REFUNDED to prevent double refunds
+      if (payment) {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.REFUNDED },
+        });
+      }
     } else {
-      // Reversing consultation fee directly (fallback)
-      const platformFee = amount.mul(0.05); // 5% fee reversal
+      // Direct payments path (fallback)
+      const commissionSetting = await tx.systemSetting.findUnique({
+        where: { key: 'commission_rate' },
+      });
+      const commissionPercent = parseFloat(commissionSetting?.value || '5');
+      const platformFee = amount.mul(commissionPercent / 100);
       const netVetAmount = amount.minus(platformFee);
+      const vetUserId = payment?.appointment?.vet?.userId || userId;
 
       await tx.ledgerEntry.createMany({
         data: [
           {
             refundId,
             accountType: LedgerAccountType.VET_BALANCE,
-            accountId: userId,
+            accountId: vetUserId,
             amount: netVetAmount,
             type: LedgerEntryType.DEBIT, // Debit Vet to pull back earnings
             reference: `${ledgerRefBase}-VET-DEBIT`,
@@ -313,7 +471,7 @@ export class LedgerService {
       // Update projections
       await this.updateBalanceProjection(
         tx,
-        userId,
+        vetUserId,
         netVetAmount,
         LedgerEntryType.DEBIT,
       );
@@ -323,6 +481,13 @@ export class LedgerService {
         amount,
         LedgerEntryType.CREDIT,
       );
+
+      if (payment) {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.REFUNDED },
+        });
+      }
     }
   }
 

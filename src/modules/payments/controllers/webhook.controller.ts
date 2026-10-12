@@ -6,15 +6,17 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
-  Get,
+  BadRequestException,
 } from '@nestjs/common';
 import { WebhookService } from '../services/webhook.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Public } from '../../identity/auth/decorators/public.decorator';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @ApiTags('Payments')
 @Controller('payments/webhook')
 @Public()
+@SkipThrottle()
 export class WebhookController {
   constructor(private readonly webhookService: WebhookService) {}
 
@@ -33,6 +35,8 @@ export class WebhookController {
     status: 401,
     description: 'Invalid or missing signature header.',
   })
+  
+  
   async handlePaystackWebhook(
     @Headers('x-paystack-signature') signature: string,
     @Req() req: any,
@@ -41,11 +45,16 @@ export class WebhookController {
       throw new UnauthorizedException('Missing signature header');
     }
 
-    // In NestJS, when rawBody is enabled in NestFactory, req.rawBody is a Buffer containing the raw request body.
+    // rawBody is enabled via NestFactory { rawBody: true } in main.ts.
+    // We MUST use the raw bytes for HMAC verification — JSON.stringify can produce a different
+    // byte sequence than what Paystack signed.
     const rawBodyBuffer = req.rawBody;
-    const rawBody = rawBodyBuffer
-      ? rawBodyBuffer.toString('utf8')
-      : JSON.stringify(req.body);
+    if (!rawBodyBuffer) {
+      throw new BadRequestException(
+        'Raw request body is required for webhook signature verification',
+      );
+    }
+    const rawBody = rawBodyBuffer.toString('utf8');
 
     await this.webhookService.processPaystackWebhook(
       signature,

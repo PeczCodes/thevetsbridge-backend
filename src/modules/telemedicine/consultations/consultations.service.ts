@@ -341,26 +341,37 @@ export class ConsultationsService implements OnModuleInit {
     });
   }
 
-  async isParticipant(
-    userId: string,
+  async findConsultationByIdOrAppt<T extends Prisma.ConsultationInclude>(
     idOrApptId: string,
-  ): Promise<boolean> {
+    include?: T,
+  ): Promise<Prisma.ConsultationGetPayload<{ include: T }> | null> {
     let consultation = await this.prisma.consultation.findUnique({
       where: { id: idOrApptId },
-      include: { vet: true },
+      include,
     });
 
     if (!consultation) {
       consultation = await this.prisma.consultation.findFirst({
         where: { appointmentId: idOrApptId },
-        include: { vet: true },
+        include,
       });
     }
+
+    return consultation as any;
+  }
+
+  async isParticipant(
+    userId: string,
+    idOrApptId: string,
+  ): Promise<boolean> {
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId, {
+      vet: true,
+    });
 
     if (!consultation) return false;
 
     return (
-      consultation.customerId === userId || consultation.vet.userId === userId
+      consultation.customerId === userId || consultation.vet?.userId === userId
     );
   }
 
@@ -369,24 +380,16 @@ export class ConsultationsService implements OnModuleInit {
     idOrApptId: string,
     content: string,
   ) {
-    let consultation = await this.prisma.consultation.findUnique({
-      where: { id: idOrApptId },
-      include: { vet: true },
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId, {
+      vet: true,
     });
-
-    if (!consultation) {
-      consultation = await this.prisma.consultation.findFirst({
-        where: { appointmentId: idOrApptId },
-        include: { vet: true },
-      });
-    }
 
     if (!consultation) {
       throw new NotFoundException('Consultation not found');
     }
 
     const isCustomer = consultation.customerId === userId;
-    const isVet = consultation.vet.userId === userId;
+    const isVet = consultation.vet?.userId === userId;
 
     if (!isCustomer && !isVet) {
       throw new ForbiddenException(
@@ -474,15 +477,7 @@ export class ConsultationsService implements OnModuleInit {
     idOrApptId: string,
     pagination: PaginationDto,
   ) {
-    let consultation = await this.prisma.consultation.findUnique({
-      where: { id: idOrApptId },
-    });
-
-    if (!consultation) {
-      consultation = await this.prisma.consultation.findFirst({
-        where: { appointmentId: idOrApptId },
-      });
-    }
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId);
 
     if (!consultation) {
       throw new NotFoundException('Consultation not found');
@@ -520,10 +515,9 @@ export class ConsultationsService implements OnModuleInit {
     });
   }
 
-  async generateLiveKitToken(userId: string, consultationId: string) {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
-      include: { vet: true },
+  async generateLiveKitToken(userId: string, idOrApptId: string) {
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId, {
+      vet: true,
     });
 
     if (!consultation) {
@@ -531,7 +525,7 @@ export class ConsultationsService implements OnModuleInit {
     }
 
     const isCustomer = consultation.customerId === userId;
-    const isVet = consultation.vet.userId === userId;
+    const isVet = consultation.vet?.userId === userId;
 
     if (!isCustomer && !isVet) {
       throw new ForbiddenException(
@@ -555,7 +549,7 @@ export class ConsultationsService implements OnModuleInit {
       );
     }
 
-    const roomName = `consultation:${consultationId}`;
+    const roomName = `consultation:${consultation.id}`;
     const participantName = isVet ? 'Doctor' : 'Client';
 
     const at = new AccessToken(apiKey, apiSecret, {
@@ -572,7 +566,7 @@ export class ConsultationsService implements OnModuleInit {
     });
 
     const token = await at.toJwt();
-    return { token, url: livekitUrl };
+    return { token, url: livekitUrl, consultationId: consultation.id };
   }
 
   async handleLiveKitWebhook(body: any, signature: string) {
@@ -688,19 +682,26 @@ export class ConsultationsService implements OnModuleInit {
   }
 
   // Ephemeral Presence Heartbeats and Waiting Room Transitions
-  async joinWaitingRoom(userId: string, consultationId: string) {
+  async joinWaitingRoom(userId: string, idOrApptId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const consultation = await tx.consultation.findUnique({
-        where: { id: consultationId },
+      let consultation = await tx.consultation.findUnique({
+        where: { id: idOrApptId },
         include: { vet: true },
       });
+
+      if (!consultation) {
+        consultation = await tx.consultation.findFirst({
+          where: { appointmentId: idOrApptId },
+          include: { vet: true },
+        });
+      }
 
       if (!consultation) {
         throw new NotFoundException('Consultation not found');
       }
 
       const isCustomer = consultation.customerId === userId;
-      const isVet = consultation.vet.userId === userId;
+      const isVet = consultation.vet?.userId === userId;
 
       if (!isCustomer && !isVet) {
         throw new ForbiddenException(
@@ -722,20 +723,26 @@ export class ConsultationsService implements OnModuleInit {
           userId,
           action: 'ROOM_ENTERED',
           entityType: 'CONSULTATION',
-          entityId: consultationId,
+          entityId: consultation.id,
           metadata: { role: isVet ? 'VET' : 'CUSTOMER' },
         },
       });
 
-      return this.generateLiveKitToken(userId, consultationId);
+      return this.generateLiveKitToken(userId, consultation.id);
     });
   }
 
   async registerPresence(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     presenceInfo: { ip?: string; ua?: string },
   ) {
+    const consultationRecord = await this.findConsultationByIdOrAppt(idOrApptId);
+    if (!consultationRecord) {
+      throw new NotFoundException('Consultation not found');
+    }
+    const consultationId = consultationRecord.id;
+
     const redisClient = this.redisService.getClient();
     const presenceKey = `presence:consultation:${consultationId}:${userId}`;
     const timeout =
@@ -851,7 +858,13 @@ export class ConsultationsService implements OnModuleInit {
     });
   }
 
-  async heartbeat(userId: string, consultationId: string) {
+  async heartbeat(userId: string, idOrApptId: string) {
+    const consultationRecord = await this.findConsultationByIdOrAppt(idOrApptId);
+    if (!consultationRecord) {
+      throw new NotFoundException('Consultation not found');
+    }
+    const consultationId = consultationRecord.id;
+
     const redisClient = this.redisService.getClient();
     const presenceKey = `presence:consultation:${consultationId}:${userId}`;
     const timeout =
@@ -868,7 +881,11 @@ export class ConsultationsService implements OnModuleInit {
     return { success: true };
   }
 
-  async registerDisconnect(userId: string, consultationId: string) {
+  async registerDisconnect(userId: string, idOrApptId: string) {
+    const consultationRecord = await this.findConsultationByIdOrAppt(idOrApptId);
+    if (!consultationRecord) return;
+    const consultationId = consultationRecord.id;
+
     const redisClient = this.redisService.getClient();
     const presenceKey = `presence:consultation:${consultationId}:${userId}`;
     await redisClient.del(presenceKey);
@@ -952,11 +969,11 @@ export class ConsultationsService implements OnModuleInit {
   // Veterinarian Medical Record Summaries & Completion
   async submitSummary(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     dto: SubmitSummaryDto,
   ) {
     return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${idOrApptId} OR "appointmentId" = ${idOrApptId} FOR UPDATE`;
       if (!consultations || consultations.length === 0)
         throw new NotFoundException('Consultation not found');
       const consultation = consultations[0];
@@ -999,7 +1016,7 @@ export class ConsultationsService implements OnModuleInit {
       );
 
       const updated = await tx.consultation.update({
-        where: { id: consultationId },
+        where: { id: consultation.id },
         data: {
           status: 'COMPLETED',
           summarySubmittedAt: new Date(),
@@ -1010,10 +1027,10 @@ export class ConsultationsService implements OnModuleInit {
       // Enqueue BullMQ delayed job
       await this.lifecycleQueue.add(
         'escrow-release-job',
-        { consultationId, type: 'escrow-release' },
+        { consultationId: consultation.id, type: 'escrow-release' },
         {
           delay: disputeHours * 60 * 60 * 1000,
-          jobId: `escrow-release-${consultationId}`,
+          jobId: `escrow-release-${consultation.id}`,
         },
       );
 
@@ -1021,7 +1038,7 @@ export class ConsultationsService implements OnModuleInit {
         data: {
           type: 'MEDICAL_RECORD_CREATED',
           payload: {
-            consultationId,
+            consultationId: consultation.id,
             medicalRecordId: record.id,
             disputeWindowExpiresAt: disputeExpiry,
           },
@@ -1038,11 +1055,11 @@ export class ConsultationsService implements OnModuleInit {
   // Dispute Management
   async openDispute(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     dto: OpenDisputeDto,
   ) {
     return this.prisma.$transaction(async (tx) => {
-      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${consultationId} FOR UPDATE`;
+      const consultations = await tx.$queryRaw<any[]>`SELECT * FROM "Consultation" WHERE "id" = ${idOrApptId} OR "appointmentId" = ${idOrApptId} FOR UPDATE`;
       if (!consultations || consultations.length === 0)
         throw new NotFoundException('Consultation not found');
       const consultation = consultations[0];
@@ -1068,7 +1085,7 @@ export class ConsultationsService implements OnModuleInit {
 
       const dispute = await tx.consultationDispute.create({
         data: {
-          consultationId,
+          consultationId: consultation.id,
           raisedById: userId,
           reason: dto.reason,
           details: dto.details || null,
@@ -1077,14 +1094,14 @@ export class ConsultationsService implements OnModuleInit {
       });
 
       await tx.consultation.update({
-        where: { id: consultationId },
+        where: { id: consultation.id },
         data: { status: 'DISPUTED' },
       });
 
       await tx.outboxEvent.create({
         data: {
           type: 'DISPUTE_OPENED',
-          payload: { consultationId, disputeId: dispute.id },
+          payload: { consultationId: consultation.id, disputeId: dispute.id },
         },
       });
 
@@ -1295,7 +1312,7 @@ export class ConsultationsService implements OnModuleInit {
     const payment = await tx.payment.findFirst({
       where: {
         appointmentId: consultation.appointmentId,
-        status: 'PAID_IN_ESCROW',
+        status: { in: ['PAID_IN_ESCROW', 'RELEASED'] },
       },
     });
 
@@ -1367,12 +1384,12 @@ export class ConsultationsService implements OnModuleInit {
 
   async handleSessionAction(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     action: 'start' | 'join' | 'end',
   ) {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
-      include: { vet: true, appointment: true },
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId, {
+      vet: true,
+      appointment: true,
     });
 
     if (!consultation) {
@@ -1380,7 +1397,7 @@ export class ConsultationsService implements OnModuleInit {
     }
 
     const isCustomer = consultation.customerId === userId;
-    const isVet = consultation.vet.userId === userId;
+    const isVet = consultation.vet?.userId === userId;
 
     if (!isCustomer && !isVet) {
       throw new ForbiddenException(
@@ -1400,11 +1417,11 @@ export class ConsultationsService implements OnModuleInit {
         'IN_PROGRESS',
       );
       this.monitoringService?.incrementCounter(TELEMEDICINE_CONSULTATIONS_STARTED_TOTAL, 1, { type: consultation.mode });
-      return this.generateLiveKitToken(userId, consultationId);
+      return this.generateLiveKitToken(userId, consultation.id);
     }
 
     if (action === 'join') {
-      return this.generateLiveKitToken(userId, consultationId);
+      return this.generateLiveKitToken(userId, consultation.id);
     }
 
     if (action === 'end') {
@@ -1429,12 +1446,10 @@ export class ConsultationsService implements OnModuleInit {
 
   async submitReview(
     userId: string,
-    consultationId: string,
+    idOrApptId: string,
     dto: SubmitReviewDto,
   ) {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
-    });
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId);
 
     if (!consultation || consultation.customerId !== userId) {
       throw new ForbiddenException('Only the client can leave a review');
@@ -1444,7 +1459,7 @@ export class ConsultationsService implements OnModuleInit {
       data: {
         reviewerId: userId,
         vetId: consultation.vetId,
-        consultationId,
+        consultationId: consultation.id,
         rating: dto.rating,
         comment: dto.comment || null,
         isVerified: true,
@@ -1452,20 +1467,17 @@ export class ConsultationsService implements OnModuleInit {
     });
   }
 
-  async updateStatus(userId: string, consultationId: string, status: string) {
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: consultationId },
-      include: {
-        appointment: true,
-        vet: true,
-      },
+  async updateStatus(userId: string, idOrApptId: string, status: string) {
+    const consultation = await this.findConsultationByIdOrAppt(idOrApptId, {
+      appointment: true,
+      vet: true,
     });
 
     if (!consultation) {
       throw new NotFoundException('Consultation not found');
     }
 
-    if (consultation.vet.userId !== userId) {
+    if (consultation.vet?.userId !== userId) {
       throw new ForbiddenException('Not authorized to update this consultation');
     }
 
@@ -1485,7 +1497,7 @@ export class ConsultationsService implements OnModuleInit {
     }
 
     return this.prisma.consultation.findUnique({
-      where: { id: consultationId },
+      where: { id: consultation.id },
       include: { appointment: true },
     });
   }

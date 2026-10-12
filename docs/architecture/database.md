@@ -60,7 +60,7 @@ erDiagram
 ## Concurrency & Indexing Design
 
 * **Optimistic Concurrency Control**: `VendorProduct` includes a `version Int @default(0)` field for race-free inventory decrementing.
-* **Database Row Locking**: Raw `SELECT ... FOR UPDATE` SQL queries are used during financial transactions (`PayoutWorker`) and outbox polling (`OutboxProcessor`) to guarantee isolation.
+* **Database Row Locking**: Raw `SELECT ... FOR UPDATE` SQL queries are used during financial transactions (`PayoutWorker`) and outbox polling (`OutboxPoller`) to guarantee isolation.
 * **Performance Indexes**: High-cardinality foreign keys and search columns feature explicit single and compound indexes:
   - `@@index([userId])` on `Session`, `Order`, `Appointment`
   - `@@index([status, isAvailable])` on `VetProfile`

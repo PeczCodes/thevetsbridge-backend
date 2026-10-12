@@ -5,10 +5,7 @@ import { PrismaService } from '../../../../../infra/prisma/prisma.service';
 
 @Processor('session-cleanup')
 @Injectable()
-export class SessionCleanupProcessor
-  extends WorkerHost
-  implements OnApplicationBootstrap
-{
+export class SessionCleanupProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(SessionCleanupProcessor.name);
 
   constructor(
@@ -55,7 +52,6 @@ export class SessionCleanupProcessor
     );
 
     try {
-      // Prune expired or revoked sessions
       const deleteSessionsResult = await this.prisma.session.deleteMany({
         where: {
           OR: [{ expiresAt: { lt: new Date() } }, { isRevoked: true }],

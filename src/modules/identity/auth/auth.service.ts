@@ -29,6 +29,8 @@ import {
   AUTH_JWT_REFRESHES_TOTAL,
 } from '../../../monitoring/metrics/auth.metrics';
 
+import { AccountLockoutService } from './services/account-lockout.service';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -43,6 +45,7 @@ export class AuthService {
     private readonly cacheService: CacheService,
     private readonly redisService: RedisService,
     private readonly encryptionService: EncryptionService,
+    private readonly accountLockoutService: AccountLockoutService,
     @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
@@ -64,9 +67,16 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       let vetSlug: string | undefined;
       if (registerDto.vetProfile) {
-        if (registerDto.vetProfile.licenseNumber) {
+        const rawLicense = registerDto.vetProfile.licenseNumber?.trim();
+        const cleanLicense =
+          !rawLicense || rawLicense.toUpperCase() === 'PENDING'
+            ? undefined
+            : rawLicense;
+        registerDto.vetProfile.licenseNumber = cleanLicense;
+
+        if (cleanLicense) {
           const existingVet = await tx.vetProfile.findUnique({
-            where: { licenseNumber: registerDto.vetProfile.licenseNumber },
+            where: { licenseNumber: cleanLicense },
           });
           if (existingVet) {
             throw new BadRequestException(
@@ -183,18 +193,21 @@ export class AuthService {
       );
     }
 
-    if (user.lockoutUntil && user.lockoutUntil > new Date()) {
-      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'locked', method: 'password' });
-      const remainingTime = Math.ceil(
-        (user.lockoutUntil.getTime() - Date.now()) / 60000,
-      );
-      throw new UnauthorizedException(
-        `Account is temporarily locked due to multiple failed login attempts. Please try again in ${remainingTime} minutes.`,
-      );
+    try {
+      this.accountLockoutService.assertNotLocked(user.lockoutUntil);
+    } catch (err) {
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, {
+        status: 'locked',
+        method: 'password',
+      });
+      throw err;
     }
 
     if (!user.passwordHash) {
-      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'google_only', method: 'password' });
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, {
+        status: 'google_only',
+        method: 'password',
+      });
       throw new UnauthorizedException(
         "This account currently uses Google Sign-In. Add a password from your account security settings if you'd like to sign in with email and password.",
       );
@@ -205,40 +218,23 @@ export class AuthService {
       loginDto.password,
     );
     if (!isPasswordValid) {
-      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, { status: 'failure', method: 'password' });
-      const failedAttempts = user.failedLoginAttempts + 1;
-      const lockoutUntil =
-        failedAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
-
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedLoginAttempts: failedAttempts,
-          lockoutUntil,
-        },
+      this.monitoringService?.incrementCounter(AUTH_LOGINS_TOTAL, 1, {
+        status: 'failure',
+        method: 'password',
       });
-
-      if (lockoutUntil) {
-        throw new UnauthorizedException(
-          'Account has been locked for 15 minutes due to multiple failed login attempts.',
-        );
-      }
-      const remainingRetries = 5 - failedAttempts;
-      throw new UnauthorizedException(
-        `Invalid credentials. ${remainingRetries} attempts remaining.`,
+      await this.accountLockoutService.recordFailedAttempt(
+        user.id,
+        user.failedLoginAttempts,
       );
+      throw new UnauthorizedException('Invalid credentials');
     }
 
     // Reset failed login tracking if necessary
-    if (user.failedLoginAttempts > 0 || user.lockoutUntil) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedLoginAttempts: 0,
-          lockoutUntil: null,
-        },
-      });
-    }
+    await this.accountLockoutService.resetFailedAttempts(
+      user.id,
+      user.failedLoginAttempts,
+      user.lockoutUntil,
+    );
 
     const { passwordHash, ...result } = user;
     const tokens = await this.tokenService.issueAuthTokens(
@@ -283,9 +279,20 @@ export class AuthService {
   async verifyPassword(email: string, password: string): Promise<boolean> {
     const user = await this.usersService.findByEmail(email);
     if (!user || !user.passwordHash) {
+      // No account or Google-only account — reject without touching lockout counter
       return false;
     }
-    return this.hashingService.verify(user.passwordHash, password);
+    // Honour lockout state before doing any expensive Argon2 work
+    this.accountLockoutService.assertNotLocked(user.lockoutUntil);
+    const isValid = await this.hashingService.verify(user.passwordHash, password);
+    if (!isValid) {
+      // recordFailedAttempt increments the counter and throws with remaining attempts.
+      // The throw means we never reach "return false" below.
+      await this.accountLockoutService.recordFailedAttempt(user.id, user.failedLoginAttempts);
+      return false; // unreachable; satisfies TypeScript
+    }
+    await this.accountLockoutService.resetFailedAttempts(user.id, user.failedLoginAttempts, user.lockoutUntil);
+    return true;
   }
 
   async logout(token: string) {
@@ -298,21 +305,42 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const isPasswordValid = user.passwordHash
-      ? await this.hashingService.verify(user.passwordHash, password)
-      : false;
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'Account is deactivated. Please contact support.',
+      );
     }
+
+    // Check lockout before doing any Argon2 work
+    this.accountLockoutService.assertNotLocked(user.lockoutUntil);
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException(
+        "This account uses Google Sign-In. Add a password from your security settings before linking a profile.",
+      );
+    }
+
+    const isPasswordValid = await this.hashingService.verify(user.passwordHash, password);
+    if (!isPasswordValid) {
+      // Throws with remaining attempts / lockout message
+      await this.accountLockoutService.recordFailedAttempt(user.id, user.failedLoginAttempts);
+    }
+    await this.accountLockoutService.resetFailedAttempts(user.id, user.failedLoginAttempts, user.lockoutUntil);
 
     if (user.vetProfile) {
       throw new ConflictException('User already has a veterinarian profile');
     }
 
     const vetProfile = await this.prisma.$transaction(async (tx) => {
-      if (vetData.licenseNumber) {
+      const rawLicense = vetData.licenseNumber?.trim();
+      const cleanLicense =
+        !rawLicense || rawLicense.toUpperCase() === 'PENDING'
+          ? undefined
+          : rawLicense;
+
+      if (cleanLicense) {
         const existingVet = await tx.vetProfile.findUnique({
-          where: { licenseNumber: vetData.licenseNumber },
+          where: { licenseNumber: cleanLicense },
         });
         if (existingVet) {
           throw new BadRequestException(
@@ -323,7 +351,7 @@ export class AuthService {
       const createdProfile = await tx.vetProfile.create({
         data: {
           userId: user.id,
-          licenseNumber: vetData.licenseNumber,
+          licenseNumber: cleanLicense,
           licenseCountry: vetData.licenseCountry || 'Nigeria',
           specializations: vetData.specializations || ['GENERAL_PRACTICE'],
           experience: vetData.experience,
@@ -347,7 +375,18 @@ export class AuthService {
     });
 
     await this.cacheService.invalidateUser(user.id);
-    return vetProfile;
+
+    // Fetch fresh user so the response includes the newly linked vetProfile
+    const freshUser = await this.usersService.findById(user.id);
+    const { passwordHash, ...userResult } = freshUser as any;
+    return {
+      vetProfile,
+      user: {
+        ...userResult,
+        avatarUrl: (freshUser as any).avatarMedia?.storageUrl || null,
+        hasPassword: passwordHash !== null,
+      },
+    };
   }
 
   async linkVendorProfile(email: string, password: string, vendorData?: any) {
@@ -356,12 +395,26 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const isPasswordValid = user.passwordHash
-      ? await this.hashingService.verify(user.passwordHash, password)
-      : false;
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (!user.isActive) {
+      throw new UnauthorizedException(
+        'Account is deactivated. Please contact support.',
+      );
     }
+
+    // Check lockout before doing any Argon2 work
+    this.accountLockoutService.assertNotLocked(user.lockoutUntil);
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException(
+        "This account uses Google Sign-In. Add a password from your security settings before linking a profile.",
+      );
+    }
+
+    const isPasswordValid = await this.hashingService.verify(user.passwordHash, password);
+    if (!isPasswordValid) {
+      await this.accountLockoutService.recordFailedAttempt(user.id, user.failedLoginAttempts);
+    }
+    await this.accountLockoutService.resetFailedAttempts(user.id, user.failedLoginAttempts, user.lockoutUntil);
 
     if (user.vendorProfile) {
       throw new ConflictException('User already has a vendor profile');
@@ -394,7 +447,18 @@ export class AuthService {
     });
 
     await this.cacheService.invalidateUser(user.id);
-    return vendorProfile;
+
+    // Fetch fresh user so the response includes the newly linked vendorProfile
+    const freshUser = await this.usersService.findById(user.id);
+    const { passwordHash, ...userResult } = freshUser as any;
+    return {
+      vendorProfile,
+      user: {
+        ...userResult,
+        avatarUrl: (freshUser as any).avatarMedia?.storageUrl || null,
+        hasPassword: passwordHash !== null,
+      },
+    };
   }
 
   async validateOrCreateGoogleUser(googleUser: {

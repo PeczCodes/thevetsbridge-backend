@@ -20,11 +20,7 @@ export class TokenService {
     private readonly configService: ConfigService,
   ) {}
 
-  async issueAuthTokens(
-    userId: string,
-    email: string,
-    context?: { ip?: string; ua?: string },
-  ) {
+  async issueAuthTokens(userId: string, email: string, context?: { ip?: string; ua?: string }) {
     const sessionId = randomUUID();
 
     const accessTokenPayload = {
@@ -38,8 +34,7 @@ export class TokenService {
       sid: sessionId,
     };
 
-    const refreshSecret =
-      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+    const refreshSecret = this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(accessTokenPayload, {
@@ -78,8 +73,7 @@ export class TokenService {
   ) {
     let payload: Payload;
 
-    const refreshSecret =
-      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+    const refreshSecret = this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
     try {
       payload = await this.jwtService.verifyAsync<Payload>(refreshToken, {
@@ -119,9 +113,7 @@ export class TokenService {
       throw new UnauthorizedException('Token verification failed');
     }
 
-    // Issue new tokens FIRST, then rotate session atomically.
-    // We do NOT delete the session before issuing new tokens to prevent a race condition
-    // where concurrent refresh attempts leave the user with no valid session.
+    
     const newSessionId = randomUUID();
 
     const accessTokenPayload = { sub: session.userId, email: payload.email };

@@ -172,6 +172,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Get('check-email')
   async checkEmail(@Query('email') email: string) {
     return this.authService.checkEmail(email);
@@ -186,11 +187,19 @@ export class AuthController {
     @Res({ passthrough: true }) res: express.Response,
   ) {
     if (!registerDto.vetProfile) {
+      // licenseNumber is nullable (String? @unique) — nulls are not subject to the unique constraint.
+      // Vets can register without a license number and submit it later during profile completion.
       registerDto.vetProfile = {
-        licenseNumber: 'PENDING',
+        licenseNumber: undefined,
         licenseCountry: 'Nigeria',
         licenseDocUrl: '',
       };
+    } else if (registerDto.vetProfile.licenseNumber) {
+      const trimmed = registerDto.vetProfile.licenseNumber.trim();
+      registerDto.vetProfile.licenseNumber =
+        trimmed === '' || trimmed.toUpperCase() === 'PENDING'
+          ? undefined
+          : trimmed;
     }
     const context = {
       ip: req.ip,
@@ -244,6 +253,8 @@ export class AuthController {
   @Post('verify-password')
   @HttpCode(HttpStatus.OK)
   async verifyPassword(@Body() body: LoginDto) {
+    // verifyPassword now checks lockout and throws on failure —
+    // returning false only happens for no-account / Google-only users.
     const isValid = await this.authService.verifyPassword(
       body.email,
       body.password,
@@ -251,9 +262,7 @@ export class AuthController {
     if (!isValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    return {
-      success: true,
-    };
+    return { success: true };
   }
 
   @Public()
@@ -270,25 +279,30 @@ export class AuthController {
       ua: req.headers['user-agent'],
     };
 
-    const vetProfile = await this.authService.linkVetProfile(
+    const sanitizedLicense = body.licenseNumber?.trim();
+    const finalLicenseNumber =
+      !sanitizedLicense || sanitizedLicense.toUpperCase() === 'PENDING'
+        ? undefined
+        : sanitizedLicense;
+
+    // linkVetProfile now returns { vetProfile, user } and internally handles
+    // lockout, isActive, and recordFailedAttempt — no second login call needed.
+    const { vetProfile, user } = await this.authService.linkVetProfile(
       body.email,
       body.password,
       {
-        licenseNumber: body.licenseNumber || 'PENDING',
+        licenseNumber: finalLicenseNumber,
         specializations: body.specializations,
         experience: body.experience,
         bio: body.bio,
       },
     );
 
-    const { user, tokens } = await this.authService.login(
-      {
-        email: body.email,
-        password: body.password,
-      },
+    const tokens = await this.authService.issueAuthTokens(
+      user.id,
+      user.email,
       context,
     );
-
     this.setRefreshTokenCookie(res, tokens.refreshToken);
     this.setAccessTokenCookie(res, tokens.accessToken);
 
@@ -313,7 +327,8 @@ export class AuthController {
       ua: req.headers['user-agent'],
     };
 
-    const vendorProfile = await this.authService.linkVendorProfile(
+    // linkVendorProfile now returns { vendorProfile, user } — no second login call needed.
+    const { vendorProfile, user } = await this.authService.linkVendorProfile(
       body.email,
       body.password,
       {
@@ -324,14 +339,11 @@ export class AuthController {
       },
     );
 
-    const { user, tokens } = await this.authService.login(
-      {
-        email: body.email,
-        password: body.password,
-      },
+    const tokens = await this.authService.issueAuthTokens(
+      user.id,
+      user.email,
       context,
     );
-
     this.setRefreshTokenCookie(res, tokens.refreshToken);
     this.setAccessTokenCookie(res, tokens.accessToken);
 

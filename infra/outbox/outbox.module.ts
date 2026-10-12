@@ -1,7 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { OutboxService } from './outbox.service';
+import { OutboxPoller } from './outbox.poller';
 import { OutboxProcessor } from './outbox.processor';
-import { OutboxWorker } from './outbox.worker';
 import { BullModule } from '@nestjs/bullmq';
 import { PaymentsModule } from '../../src/modules/payments/payments.module';
 import { NotificationsQueueModule } from '../queues/notifications-queue/notifications-queue.module';
@@ -18,7 +18,7 @@ import { RedisModule } from '../redis/redis.module';
     MediaModule,
     RedisModule,
   ],
-  providers: [OutboxService, OutboxProcessor, OutboxWorker],
+  providers: [OutboxService, OutboxPoller, OutboxProcessor],
   exports: [OutboxService],
 })
 export class OutboxModule {}

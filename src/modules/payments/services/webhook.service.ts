@@ -32,24 +32,20 @@ export class WebhookService {
   /**
    * Validates Paystack webhook signature, deduplicates the event, and processes transaction or payout events.
    */
-  async processPaystackWebhook(
-    signature: string,
-    rawBody: string,
-    payload: any,
-  ): Promise<void> {
+  async processPaystackWebhook(signature: string, rawBody: string, payload: any): Promise<void> {
     // 1. Signature Verification
     const isValid = this.paystackProvider.verifyWebhookSignature(
       signature,
       rawBody,
     );
+    
     if (!isValid) {
       this.logger.warn('Received webhook with invalid Paystack signature');
       throw new UnauthorizedException('Invalid Paystack signature');
     }
 
     const event = payload.event;
-    const correlationId =
-      payload.data?.metadata?.correlationId || 'UNKNOWN-CORRELATION-ID';
+    const correlationId = payload.data?.metadata?.correlationId || 'UNKNOWN-CORRELATION-ID';
 
     // Handle unhandled event types gracefully by returning 200 OK (no-op)
     const allowedEvents = [
@@ -57,19 +53,16 @@ export class WebhookService {
       'transfer.success',
       'transfer.failed',
     ];
+    
     if (!allowedEvents.includes(event)) {
-      this.logger.log(
-        `[Correlation ID: ${correlationId}] Webhook event type "${event}" ignored. Returning 200 OK.`,
-      );
+      this.logger.log(`[Correlation ID: ${correlationId}] Webhook event type "${event}" ignored. Returning 200 OK.`,);
       return;
     }
 
     const eventId = payload.data?.id?.toString() || payload.data?.transfer_code;
     const reference = payload.data?.reference;
 
-    this.logger.log(
-      `[Correlation ID: ${correlationId}] Ingested webhook event from Paystack. Event: ${event}, Event ID: ${eventId}, Reference: ${reference}`,
-    );
+    this.logger.log(`[Correlation ID: ${correlationId}] Ingested webhook event from Paystack. Event: ${event}, Event ID: ${eventId}, Reference: ${reference}`,);
 
     if (!eventId || !reference) {
       this.logger.warn(
@@ -102,9 +95,8 @@ export class WebhookService {
 
     // 3. Process Event based on type
     if (event === 'charge.success') {
-      this.logger.log(
-        `[Correlation ID: ${correlationId}] Enqueuing background verification job for reference: ${reference}`,
-      );
+      this.logger.log(`[Correlation ID: ${correlationId}] Enqueuing background verification job for reference: ${reference}`,);
+      
       await this.verifyQueue.add(
         'verify-payment',
         {
@@ -147,18 +139,42 @@ export class WebhookService {
 
       const financialTx = financialTxs[0];
 
-      // 2. Idempotency Check: Exit if already in a final state
+      // 2. Idempotency Check
+      if (financialTx.status === FinancialTxStatus.COMPLETED) {
+        this.logger.log(
+          `Financial transaction ${reference} is already in final state: COMPLETED. No-op.`,
+        );
+        return;
+      }
+
       if (
-        financialTx.status === FinancialTxStatus.COMPLETED ||
-        financialTx.status === FinancialTxStatus.FAILED
+        financialTx.status === FinancialTxStatus.FAILED &&
+        event === 'transfer.failed'
       ) {
         this.logger.log(
-          `Financial transaction ${reference} is already in final state: ${financialTx.status}. No-op.`,
+          `Financial transaction ${reference} is already marked FAILED. No-op.`,
         );
         return;
       }
 
       const amountDecimal = new Decimal(financialTx.amount);
+
+      if (
+        financialTx.status === FinancialTxStatus.FAILED &&
+        event === 'transfer.success'
+      ) {
+        this.logger.error(
+          `CRITICAL: transfer.success received for transaction ${reference} previously marked FAILED! Clawing back refunded balance.`,
+        );
+        // Claw back the previously refunded balance
+        await tx.userBalance.update({
+          where: { userId: financialTx.userId },
+          data: {
+            availableBalance: { decrement: amountDecimal },
+            totalWithdrawn: { increment: amountDecimal },
+          },
+        });
+      }
 
       if (event === 'transfer.success') {
         // Transition to COMPLETED
@@ -177,7 +193,10 @@ export class WebhookService {
             txId: financialTx.id,
             fromStatus: financialTx.status,
             toStatus: FinancialTxStatus.COMPLETED,
-            reason: 'Paystack transfer completed successfully (webhook).',
+            reason:
+              financialTx.status === FinancialTxStatus.FAILED
+                ? 'Reconciliation: Paystack transfer confirmed successful after prior failure mark.'
+                : 'Paystack transfer completed successfully (webhook).',
           },
         });
 
@@ -239,9 +258,7 @@ export class WebhookService {
           },
         });
 
-        this.logger.warn(
-          `Withdrawal failed and balance restored for user ${financialTx.userId}. Reason: ${failureReason}`,
-        );
+        this.logger.warn(`Withdrawal failed and balance restored for user ${financialTx.userId}. Reason: ${failureReason}`,);
       }
     });
   }

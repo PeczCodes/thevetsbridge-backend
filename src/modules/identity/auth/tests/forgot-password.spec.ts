@@ -3,6 +3,7 @@ import { AuthService } from '../auth.service';
 import { PrismaService } from '../../../../../infra/prisma/prisma.service';
 import { HashingService } from '../services/hash.service';
 import { TokenService } from '../services/token.service';
+import { AccountLockoutService } from '../services/account-lockout.service';
 import { UsersService } from '../../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -110,6 +111,14 @@ describe('ForgotPassword Flow', () => {
         { provide: JwtService, useValue: {} },
         { provide: ConfigService, useValue: configService },
         { provide: CacheService, useValue: {} },
+        {
+          provide: AccountLockoutService,
+          useValue: {
+            assertNotLocked: jest.fn(),
+            recordFailedAttempt: jest.fn(),
+            resetFailedAttempts: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

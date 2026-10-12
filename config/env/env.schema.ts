@@ -16,10 +16,10 @@ export const envSchema = z.object({
   // ==============================
   METRICS_ENABLED: z.string().optional().default('true'),
   METRICS_AUTH_ENABLED: z.string().optional().default('false'),
-  METRICS_API_KEY: z.string().optional().or(z.literal('')),
-  GRAFANA_CLOUD_PROMETHEUS_URL: z.string().optional().or(z.literal('')),
-  GRAFANA_CLOUD_PROMETHEUS_USER: z.string().optional().or(z.literal('')),
-  GRAFANA_CLOUD_API_KEY: z.string().optional().or(z.literal('')),
+  METRICS_API_KEY: z.string().optional(),
+  GRAFANA_CLOUD_PROMETHEUS_URL: z.string().optional(),
+  GRAFANA_CLOUD_PROMETHEUS_USER: z.string().optional(),
+  GRAFANA_CLOUD_API_KEY: z.string().optional(),
   
   // ==============================
   // Redis

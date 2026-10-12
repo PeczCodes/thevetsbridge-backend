@@ -48,7 +48,7 @@ sequenceDiagram
     participant Service as Business Service
     participant Cache as RedisCache
     participant DB as PostgreSQL (Prisma)
-    participant Outbox as OutboxWorker / BullMQ
+    participant Outbox as OutboxProcessor / BullMQ
 
     Client->>Interceptor: HTTP Request (Headers + Cookies)
     Interceptor->>Guard: Validate Authentication & Authorization
@@ -102,5 +102,5 @@ sequenceDiagram
 ## Extension Points
 
 * **New Domain Modules**: Create a new module folder in `src/modules/<name>`, register the module in `src/app.module.ts`, define its controllers, services, and DTOs following existing module conventions.
-* **Adding Outbox Handlers**: Extend `OutboxWorker` switch-case block in `infra/outbox/outbox.worker.ts` to handle new `OutboxEvent` types.
+* **Adding Outbox Handlers**: Extend `OutboxProcessor` switch-case block in `infra/outbox/outbox.processor.ts` to handle new `OutboxEvent` types.
 * **Custom Metrics**: Inject `MonitoringService` and call `incrementCounter` or `observeHistogram` for domain-specific metrics.

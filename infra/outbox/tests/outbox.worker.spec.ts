@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { OutboxWorker } from '../outbox.worker';
+import { OutboxProcessor } from '../outbox.processor';
 import { PaymentEventEmitter } from '../../../src/modules/payments/events/payment-event.emitter';
 import { NotificationsQueueService } from '../../queues/notifications-queue/notifications-queue.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Job } from 'bullmq';
 
-describe('OutboxWorker', () => {
-  let worker: OutboxWorker;
+describe('OutboxProcessor', () => {
+  let worker: OutboxProcessor;
   let paymentEventEmitterMock: any;
   let notificationsQueueMock: any;
   let prismaMock: any;
@@ -26,14 +26,14 @@ describe('OutboxWorker', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        OutboxWorker,
+        OutboxProcessor,
         { provide: PaymentEventEmitter, useValue: paymentEventEmitterMock },
         { provide: NotificationsQueueService, useValue: notificationsQueueMock },
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
 
-    worker = module.get<OutboxWorker>(OutboxWorker);
+    worker = module.get<OutboxProcessor>(OutboxProcessor);
   });
 
   it('should be defined', () => {

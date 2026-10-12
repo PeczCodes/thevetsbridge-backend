@@ -3,10 +3,7 @@ import { MediaOwnerType, MediaResourceType } from '@prisma/client';
 
 @Injectable()
 export class FolderResolver {
-  private readonly folderRegistry: Record<
-    MediaOwnerType,
-    Partial<Record<MediaResourceType, string>>
-  > = {
+  private readonly folderRegistry: Record<MediaOwnerType, Partial<Record<MediaResourceType, string>>> = {
     [MediaOwnerType.USER]: {
       [MediaResourceType.PROFILE_IMAGE]: 'users/profile',
     },
