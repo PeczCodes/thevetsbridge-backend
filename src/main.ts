@@ -11,6 +11,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
     bufferLogs: true,
+    abortOnError: false,
   });
 
   app.useLogger(app.get(PinoLogger));
@@ -82,7 +83,17 @@ async function bootstrap() {
     });
   }
 
+  
   const redisIoAdapter = new RedisIoAdapter(app);
+  try {
+    await redisIoAdapter.connectToRedis();
+    app.useWebSocketAdapter(redisIoAdapter);
+  } catch (err) {
+    logger.warn(
+      `Redis adapter unavailable, using default Socket.IO adapter: ${(err as Error).message}`,
+    );
+  }
+  
   await redisIoAdapter.connectToRedis();
   app.useWebSocketAdapter(redisIoAdapter);
 
@@ -96,6 +107,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  new Logger('Bootstrap').error('Failed to start application', err);
+  console.error('Failed to start application', err);
   process.exit(1);
 });
