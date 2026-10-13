@@ -9,10 +9,7 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
   private connectionStatus: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
   constructor(private readonly configService: ConfigService) {
-    const redisUrl =
-      this.configService.get<string>('REDIS_URL') ||
-      this.configService.get<string>('redis.url') ||
-      process.env.REDIS_URL;
+    const redisUrl = this.configService.get<string>('REDIS_URL') || this.configService.get<string>('redis.url') || process.env.REDIS_URL;
 
     const commonOptions = {
       maxRetriesPerRequest: null,
@@ -28,17 +25,10 @@ export class RedisService implements OnModuleInit, OnApplicationShutdown {
       this.client = new Redis(redisUrl, commonOptions);
     } else {
       this.client = new Redis({
-        host:
-          this.configService.get<string>('redis.host') ||
-          this.configService.get<string>('REDIS_HOST', 'localhost'),
-        port: Number(
-          this.configService.get('redis.port') ||
-          this.configService.get('REDIS_PORT', 6379),
+        host: this.configService.get<string>('redis.host') || this.configService.get<string>('REDIS_HOST', 'localhost'),
+        port: Number(this.configService.get('redis.port') || this.configService.get('REDIS_PORT', 6379),
         ),
-        password:
-          this.configService.get<string>('redis.password') ||
-          this.configService.get<string>('REDIS_PASSWORD') ||
-          undefined,
+        password: this.configService.get<string>('redis.password') || this.configService.get<string>('REDIS_PASSWORD') || undefined,
         ...commonOptions,
       });
     }
